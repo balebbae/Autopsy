@@ -15,6 +15,7 @@ tags:
   - name: runs
   - name: preflight
   - name: stream
+  - name: graph
 
 paths:
   /v1/health:
@@ -186,7 +187,7 @@ paths:
 
   /v1/graph/nodes:
     get:
-      tags: [preflight]
+      tags: [graph]
       summary: Inspect graph nodes (dashboard)
       parameters:
         - in: query
@@ -208,7 +209,7 @@ paths:
 
   /v1/graph/edges:
     get:
-      tags: [preflight]
+      tags: [graph]
       summary: Inspect graph edges (dashboard)
       parameters:
         - in: query

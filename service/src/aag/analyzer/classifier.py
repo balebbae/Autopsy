@@ -56,10 +56,12 @@ class RunContext:
     tool_commands: list[dict] = field(default_factory=list)
 
 
-async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
+async def classify(
+    session: AsyncSession, run_id: str
+) -> tuple[RunContext | None, FailureCaseOut | None]:
     run = await session.get(Run, run_id)
     if run is None:
-        return None
+        return None, None
 
     ctx = await _build_context(session, run)
 
@@ -76,7 +78,7 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
     is_rejected = ctx.status == "rejected"
 
     if not symptoms and not is_rejected:
-        return None
+        return ctx, None
 
     if symptoms:
         failure_mode = _pick_failure_mode(symptoms)
@@ -110,7 +112,7 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
         if llm_result:
             baseline = merge_llm_result(baseline, llm_result)
 
-    return baseline
+    return ctx, baseline
 
 
 async def _build_context(session: AsyncSession, run: Run) -> RunContext:
