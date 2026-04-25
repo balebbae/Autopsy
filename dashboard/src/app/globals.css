@@ -1,26 +1,261 @@
 @import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(0.99 0.002 240);
+  --foreground: oklch(0.18 0.02 260);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 260);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 260);
+
+  --primary: oklch(0.55 0.18 255);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.95 0.01 250);
+  --secondary-foreground: oklch(0.2 0.02 260);
+
+  --muted: oklch(0.96 0.005 250);
+  --muted-foreground: oklch(0.5 0.02 260);
+
+  --accent: oklch(0.95 0.02 250);
+  --accent-foreground: oklch(0.2 0.02 260);
+
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --success: oklch(0.65 0.16 160);
+  --success-foreground: oklch(0.99 0 0);
+
+  --warning: oklch(0.75 0.18 75);
+  --warning-foreground: oklch(0.18 0.02 260);
+
+  --border: oklch(0.9 0.005 250);
+  --input: oklch(0.93 0.005 250);
+  --ring: oklch(0.55 0.18 255);
+
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.13 0.015 260);
+  --foreground: oklch(0.95 0.01 250);
+
+  --card: oklch(0.16 0.018 260);
+  --card-foreground: oklch(0.96 0.005 250);
+
+  --popover: oklch(0.16 0.018 260);
+  --popover-foreground: oklch(0.96 0.005 250);
+
+  --primary: oklch(0.7 0.17 250);
+  --primary-foreground: oklch(0.13 0.015 260);
+
+  --secondary: oklch(0.22 0.02 260);
+  --secondary-foreground: oklch(0.95 0.01 250);
+
+  --muted: oklch(0.2 0.018 260);
+  --muted-foreground: oklch(0.65 0.02 250);
+
+  --accent: oklch(0.24 0.025 260);
+  --accent-foreground: oklch(0.95 0.01 250);
+
+  --destructive: oklch(0.65 0.23 25);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --success: oklch(0.7 0.17 160);
+  --success-foreground: oklch(0.13 0.015 260);
+
+  --warning: oklch(0.78 0.17 75);
+  --warning-foreground: oklch(0.13 0.015 260);
+
+  --border: oklch(0.27 0.02 260);
+  --input: oklch(0.24 0.02 260);
+  --ring: oklch(0.7 0.17 250);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Inter, ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings:
+    "rlig" 1,
+    "calt" 1,
+    "ss01" 1;
 }
 
 body {
-  background: var(--background);
+  min-height: 100vh;
+}
+
+/* Scrollbar polish (subtle, opt-in) */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Background grid for graph + hero canvases */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--border) 60%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 60%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.bg-grid-dot {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--border) 80%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 18px 18px;
+}
+
+/* Lightweight markdown styling for the preflight system addendum */
+.prose-aag {
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+.prose-aag p {
+  margin: 0.5em 0;
+  line-height: 1.55;
+}
+.prose-aag h1,
+.prose-aag h2,
+.prose-aag h3,
+.prose-aag h4 {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+}
+.prose-aag h1 { font-size: 1.05rem; }
+.prose-aag h2 { font-size: 0.98rem; }
+.prose-aag h3 { font-size: 0.92rem; }
+.prose-aag ul,
+.prose-aag ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.prose-aag ul { list-style: disc; }
+.prose-aag ol { list-style: decimal; }
+.prose-aag li {
+  margin: 0.2em 0;
+}
+.prose-aag code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+}
+.prose-aag pre {
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0.6em 0;
+}
+.prose-aag pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.prose-aag a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-aag blockquote {
+  margin: 0.6em 0;
+  padding: 0.4em 0.8em;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.prose-aag hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+.prose-aag table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  margin: 0.6em 0;
+}
+.prose-aag th,
+.prose-aag td {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.prose-aag th {
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+}
+.prose-aag strong { font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }
