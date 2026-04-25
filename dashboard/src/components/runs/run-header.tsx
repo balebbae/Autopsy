@@ -8,7 +8,7 @@ import { StatusPill } from "@/components/primitives/status-pill"
 import { RelativeTime } from "@/components/primitives/relative-time"
 import { Badge } from "@/components/ui/badge"
 
-export function RunHeader({ run }: { run: Run }) {
+export function RunHeader({ run, children }: { run: Run; children?: React.ReactNode }) {
   return (
     <div className="space-y-3">
       <Link
@@ -58,6 +58,7 @@ export function RunHeader({ run }: { run: Run }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {children}
           <Link
             href={`${process.env.NEXT_PUBLIC_AAG_URL ?? "http://localhost:4000"}/v1/runs/${run.run_id}`}
             target="_blank"

@@ -182,4 +182,14 @@ export async function postPreflight(req: PreflightRequest): Promise<PreflightRes
   }
 }
 
+export async function getRunReport(runId: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${baseUrl}/v1/runs/${runId}/report`, { cache: "no-store" })
+    if (!r.ok) return null
+    return r.text()
+  } catch {
+    return null
+  }
+}
+
 export const apiBaseUrl = baseUrl
