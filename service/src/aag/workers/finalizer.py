@@ -18,6 +18,72 @@ from aag.models import FailureCase, Run
 log = logging.getLogger(__name__)
 
 
+async def on_rejection_filed(run_id: str, *, reason: str) -> None:
+    """Per-rejection analyzer + graph write.
+
+    Unlike `on_run_complete`, this fires while the thread is still active —
+    the run is NOT terminated. The classifier is forced into the 'rejected'
+    code path so the rejection rule and reason are used as evidence even
+    though Run.status is still 'active'.
+
+    The aggregate FailureCase row is upserted to reflect the latest
+    classification snapshot. Graph edges are upserted idempotently.
+    """
+    async with sessionmaker()() as session:
+        try:
+            ctx, fc = await classifier.classify(
+                session,
+                run_id,
+                force_rejected=True,
+                rejection_reason_override=reason,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("run %s: classifier failed for rejection", run_id)
+            return
+
+        if ctx is None or fc is None:
+            log.info("run %s: rejection filed but no classification produced", run_id)
+            return
+
+        await session.merge(
+            FailureCase(
+                run_id=fc.run_id,
+                task_type=fc.task_type,
+                failure_mode=fc.failure_mode,
+                fix_pattern=fc.fix_pattern,
+                components=fc.components,
+                change_patterns=fc.change_patterns,
+                symptoms=[s.model_dump() for s in fc.symptoms],
+                summary=fc.summary,
+            )
+        )
+
+        try:
+            run = await session.get(Run, run_id)
+            if run is not None:
+                extraction = extract(ctx, fc)
+                await gwriter.write(session, run=run, failure_case=fc, extraction=extraction)
+                await gembed.write_for(session, failure_case=fc, run=run)
+        except Exception:  # noqa: BLE001
+            log.exception("run %s: graph/embedding step failed for rejection", run_id)
+            await session.rollback()
+            await session.merge(
+                FailureCase(
+                    run_id=fc.run_id,
+                    task_type=fc.task_type,
+                    failure_mode=fc.failure_mode,
+                    fix_pattern=fc.fix_pattern,
+                    components=fc.components,
+                    change_patterns=fc.change_patterns,
+                    symptoms=[s.model_dump() for s in fc.symptoms],
+                    summary=fc.summary,
+                )
+            )
+
+        await session.commit()
+        log.info("run %s: rejection classified as %s", run_id, fc.failure_mode)
+
+
 async def on_run_complete(run_id: str) -> None:
     async with sessionmaker()() as session:
         try:

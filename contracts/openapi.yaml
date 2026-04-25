@@ -153,6 +153,56 @@ paths:
       responses:
         "204": { description: stored }
 
+  /v1/runs/{runId}/rejections:
+    get:
+      tags: [runs]
+      summary: List rejections (filed failures) recorded on a run
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Rejection" }
+        "404": { description: not found }
+    post:
+      tags: [runs]
+      summary: |
+        Record a rejection (filed failure) on a still-active run. Unlike
+        /outcome, this does NOT terminate the run — the thread keeps going
+        so the agent can recover from the failure.
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+                failure_mode: { type: string, nullable: true }
+                symptoms: { type: string, nullable: true, description: "comma-separated symptom names" }
+                ts: { type: integer, nullable: true, description: "unix ms; defaults to server time" }
+                source: { type: string, enum: [plugin, dashboard, manual], default: plugin }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rejection" }
+        "404": { description: not found }
+
   /v1/runs/{runId}/stream:
     get:
       tags: [stream]
@@ -262,7 +312,14 @@ components:
         ended_at: { type: integer, nullable: true }
         status: { type: string, enum: [active, approved, rejected, aborted] }
         task: { type: string, nullable: true, description: "Latest user prompt" }
-        rejection_reason: { type: string, nullable: true }
+        rejection_reason:
+          type: string
+          nullable: true
+          description: "Latest rejection reason. Always present once any rejection is filed; orthogonal to status."
+        rejection_count:
+          type: integer
+          default: 0
+          description: "Number of rejections filed against this still-active or terminal run."
         files_touched: { type: integer, default: 0 }
         tool_calls: { type: integer, default: 0 }
 
@@ -280,6 +337,21 @@ components:
             failure_case:
               $ref: "#/components/schemas/FailureCase"
               nullable: true
+            rejections:
+              type: array
+              items: { $ref: "#/components/schemas/Rejection" }
+
+    Rejection:
+      type: object
+      required: [id, run_id, ts, reason, source]
+      properties:
+        id: { type: integer }
+        run_id: { type: string }
+        ts: { type: integer, description: "unix ms" }
+        reason: { type: string }
+        failure_mode: { type: string, nullable: true }
+        symptoms: { type: string, nullable: true, description: "comma-separated" }
+        source: { type: string, enum: [plugin, dashboard, manual] }
 
     DiffSnapshot:
       type: object

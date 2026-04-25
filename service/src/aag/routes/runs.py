@@ -7,11 +7,13 @@ from sqlalchemy import select
 
 from aag.deps import SessionDep
 from aag.ingestion import assembler
-from aag.models import Artifact, FailureCase, Run
+from aag.models import Artifact, FailureCase, Rejection, Run
 from aag.schemas import (
     DiffSnapshot,
     FailureCaseOut,
     OutcomeIn,
+    RejectionIn,
+    RejectionOut,
     RunOut,
     RunSummary,
     Symptom,
@@ -53,8 +55,21 @@ def _summary_from(run: Run) -> RunSummary:
         status=run.status,  # type: ignore[arg-type]
         task=run.task,
         rejection_reason=run.rejection_reason,
+        rejection_count=run.rejection_count or 0,
         files_touched=run.files_touched,
         tool_calls=run.tool_calls,
+    )
+
+
+def _rejection_to_out(r: Rejection) -> RejectionOut:
+    return RejectionOut(
+        id=r.id,
+        run_id=r.run_id,
+        ts=r.ts,
+        reason=r.reason,
+        failure_mode=r.failure_mode,
+        symptoms=r.symptoms,
+        source=r.source,  # type: ignore[arg-type]
     )
 
 
@@ -104,11 +119,19 @@ async def get_run(run_id: str, session: SessionDep) -> RunOut:
         else None
     )
 
+    rejections_raw = (
+        await session.execute(
+            select(Rejection).where(Rejection.run_id == run_id).order_by(Rejection.ts)
+        )
+    ).scalars()
+    rejections = [_rejection_to_out(r) for r in rejections_raw]
+
     return RunOut(
         **_summary_from(run).model_dump(),
         events=[EventIn(**assembler.event_to_dict(e)) for e in events],
         diffs=diffs,
         failure_case=failure,
+        rejections=rejections,
     )
 
 
@@ -161,3 +184,65 @@ async def post_feedback(run_id: str, body: FeedbackIn, session: SessionDep) -> N
         raise HTTPException(status_code=404, detail="run not found")
     run.rejection_reason = body.feedback
     await session.commit()
+
+
+@router.get("/runs/{run_id}/rejections", response_model=list[RejectionOut])
+async def list_rejections(run_id: str, session: SessionDep) -> list[RejectionOut]:
+    run = await session.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    rows = (
+        await session.execute(
+            select(Rejection).where(Rejection.run_id == run_id).order_by(Rejection.ts)
+        )
+    ).scalars()
+    return [_rejection_to_out(r) for r in rows]
+
+
+@router.post(
+    "/runs/{run_id}/rejections",
+    response_model=RejectionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def post_rejection(run_id: str, body: RejectionIn, session: SessionDep) -> RejectionOut:
+    """Record a rejection (filed failure) on a still-active run.
+
+    Unlike `/outcome`, this endpoint does NOT terminate the thread or set
+    `ended_at`. The run keeps accumulating events; the dashboard renders
+    each rejection as a distinct entry on the timeline. The latest rejection
+    reason is mirrored onto `Run.rejection_reason` for back-compat.
+    """
+    run = await session.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    from time import time
+
+    ts = body.ts if body.ts is not None else int(time() * 1000)
+    row = Rejection(
+        run_id=run_id,
+        ts=ts,
+        reason=body.reason,
+        failure_mode=body.failure_mode,
+        symptoms=body.symptoms,
+        source=body.source,
+    )
+    session.add(row)
+
+    run.rejection_count = (run.rejection_count or 0) + 1
+    run.rejection_reason = body.reason
+    await session.commit()
+    await session.refresh(row)
+
+    # Per-rejection analyzer + graph write. Failures here must not bubble
+    # up to the request — the rejection itself is already persisted.
+    try:
+        from aag.workers.finalizer import on_rejection_filed
+
+        await on_rejection_filed(run_id, reason=body.reason)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("run %s: post-rejection analyzer hook failed", run_id)
+
+    return _rejection_to_out(row)

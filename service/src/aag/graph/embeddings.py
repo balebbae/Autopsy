@@ -31,7 +31,6 @@ async def embed(text: str) -> list[float]:
 
     if settings.embed_provider == "local":
         # Imported lazily so the heavy dep isn't required by default.
-        from sentence_transformers import SentenceTransformer  # type: ignore
 
         model = _local_model(settings.embed_model)
         vec = model.encode(text, normalize_embeddings=True).tolist()
