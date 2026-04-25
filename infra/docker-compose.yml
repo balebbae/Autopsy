@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aag
+      POSTGRES_PASSWORD: aag
+      POSTGRES_DB: aag
+    ports:
+      - "5432:5432"
+    volumes:
+      - aag-pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+      - ../contracts/db-schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aag -d aag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  aag-pgdata:

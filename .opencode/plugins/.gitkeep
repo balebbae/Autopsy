@@ -1,0 +1,2 @@
+# Keep the plugins/ directory in git. The autopsy plugin itself is symlinked
+# in by `make plugin-link` and intentionally ignored — see ../../.gitignore.

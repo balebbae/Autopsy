@@ -1,0 +1,31 @@
+# OS
+.DS_Store
+*~
+
+# Editors
+.idea
+.vscode
+.zed
+.codex
+
+# Env
+.env
+
+# Service (Python / FastAPI / uv)
+service/.venv/
+service/.pytest_cache/
+service/.ruff_cache/
+**/__pycache__/
+*.pyc
+
+# Dashboard (Next.js)
+dashboard/.next/
+dashboard/node_modules/
+
+# Plugin (TypeScript)
+plugin/node_modules/
+plugin/dist/
+
+# Local opencode plugin symlink (points at plugin/src/index.ts on each machine)
+.opencode/plugins/autopsy.ts
+.opencode/plugins/autopsy.js

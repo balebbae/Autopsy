@@ -1,0 +1,130 @@
+{
+  "run_id": "fixture-run-rejected-schema-001",
+  "project": "demo-monorepo",
+  "worktree": "/tmp/demo-monorepo",
+  "outcome": "rejected",
+  "feedback": "Missed the database migration and didn't regenerate the frontend types.",
+  "events": [
+    {
+      "event_id": "evt-001",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000000000,
+      "type": "session.created",
+      "properties": {
+        "sessionID": "fixture-run-rejected-schema-001",
+        "info": {
+          "id": "fixture-run-rejected-schema-001",
+          "title": "Add preferredName to user profile API and UI",
+          "directory": "/tmp/demo-monorepo"
+        }
+      }
+    },
+    {
+      "event_id": "evt-002",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000005000,
+      "type": "tool.execute.before",
+      "properties": {
+        "sessionID": "fixture-run-rejected-schema-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/profile.service.ts" }
+      }
+    },
+    {
+      "event_id": "evt-003",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000005500,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "fixture-run-rejected-schema-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/profile.service.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/profile.service.ts",
+            "oldText": "interface UserProfile {\n  id: string;\n  email: string;\n}",
+            "newText": "interface UserProfile {\n  id: string;\n  email: string;\n  preferredName?: string;\n}"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "evt-004",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000006500,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "fixture-run-rejected-schema-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/user.serializer.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/user.serializer.ts",
+            "oldText": "fields: ['id', 'email']",
+            "newText": "fields: ['id', 'email', 'preferredName']"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "evt-005",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000007000,
+      "type": "session.diff",
+      "properties": {
+        "sessionID": "fixture-run-rejected-schema-001",
+        "diff": [
+          { "file": "src/profile/profile.service.ts", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -3,3 +3,4 @@\n   id: string;\n   email: string;\n+  preferredName?: string;\n" },
+          { "file": "src/profile/user.serializer.ts",  "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-fields: ['id', 'email']\n+fields: ['id', 'email', 'preferredName']\n" }
+        ]
+      }
+    },
+    {
+      "event_id": "evt-006",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000010000,
+      "type": "permission.asked",
+      "properties": {
+        "id": "perm-1",
+        "sessionID": "fixture-run-rejected-schema-001",
+        "permission": "tool.bash",
+        "patterns": ["bash:npm test"],
+        "metadata": { "command": "npm test" }
+      }
+    },
+    {
+      "event_id": "evt-007",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000012000,
+      "type": "permission.replied",
+      "properties": {
+        "sessionID": "fixture-run-rejected-schema-001",
+        "requestID": "perm-1",
+        "reply": "reject"
+      }
+    },
+    {
+      "event_id": "evt-008",
+      "run_id": "fixture-run-rejected-schema-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1714000012500,
+      "type": "session.idle",
+      "properties": { "sessionID": "fixture-run-rejected-schema-001" }
+    }
+  ]
+}

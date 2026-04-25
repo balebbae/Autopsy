@@ -1,0 +1,372 @@
+openapi: 3.1.0
+info:
+  title: Agent Autopsy Graph Service API
+  version: 0.1.0
+  description: |
+    Ingestion + analysis + preflight API consumed by the opencode plugin and the dashboard.
+    All write paths are idempotent on (run_id, event_id) where applicable.
+
+servers:
+  - url: http://localhost:4000
+    description: Local dev
+
+tags:
+  - name: events
+  - name: runs
+  - name: preflight
+  - name: stream
+
+paths:
+  /v1/health:
+    get:
+      tags: [events]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean } }
+
+  /v1/events:
+    post:
+      tags: [events]
+      summary: Ingest a batch of opencode events
+      description: |
+        Plugin posts NDJSON-style batches of events. Insert is idempotent on
+        (run_id, event_id). Returns 202 immediately; assembly is async.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [events]
+              properties:
+                events:
+                  type: array
+                  items: { $ref: "#/components/schemas/EventIn" }
+      responses:
+        "202": { description: accepted }
+
+  /v1/runs:
+    get:
+      tags: [runs]
+      summary: List runs
+      parameters:
+        - in: query
+          name: project
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string, enum: [active, approved, rejected, aborted] }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RunSummary" }
+
+  /v1/runs/{runId}:
+    get:
+      tags: [runs]
+      summary: Get a single assembled run (events, diffs, outcome)
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { description: not found }
+
+  /v1/runs/{runId}/diff:
+    post:
+      tags: [runs]
+      summary: Attach a session.diff snapshot to a run
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiffSnapshot" }
+      responses:
+        "204": { description: stored }
+
+  /v1/runs/{runId}/outcome:
+    post:
+      tags: [runs]
+      summary: Mark final outcome of a run; triggers analyzer
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outcome]
+              properties:
+                outcome: { type: string, enum: [approved, rejected, aborted] }
+                feedback: { type: string, description: "Free-text rejection reason if any" }
+      responses:
+        "204": { description: recorded }
+
+  /v1/runs/{runId}/feedback:
+    post:
+      tags: [runs]
+      summary: Attach user feedback to a run (e.g. rejection reason captured by dashboard)
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [feedback]
+              properties:
+                feedback: { type: string }
+                source: { type: string, enum: [plugin, dashboard, manual], default: manual }
+      responses:
+        "204": { description: stored }
+
+  /v1/runs/{runId}/stream:
+    get:
+      tags: [stream]
+      summary: SSE re-broadcast of events for a single run
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /v1/preflight:
+    post:
+      tags: [preflight]
+      summary: Get warnings + checks for a new task before the agent codes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PreflightRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreflightResponse" }
+
+  /v1/graph/nodes:
+    get:
+      tags: [preflight]
+      summary: Inspect graph nodes (dashboard)
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [Run, Task, File, Component, ChangePattern, Symptom, FailureMode, FixPattern, Outcome]
+        - in: query
+          name: limit
+          schema: { type: integer, default: 200 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GraphNode" }
+
+  /v1/graph/edges:
+    get:
+      tags: [preflight]
+      summary: Inspect graph edges (dashboard)
+      parameters:
+        - in: query
+          name: source_id
+          schema: { type: string }
+        - in: query
+          name: target_id
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 500 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GraphEdge" }
+
+components:
+  schemas:
+    EventIn:
+      type: object
+      required: [run_id, type, ts, properties]
+      properties:
+        event_id: { type: string, description: "Optional plugin-side id for dedup" }
+        run_id: { type: string, description: "opencode session_id" }
+        project: { type: string, nullable: true }
+        worktree: { type: string, nullable: true }
+        ts: { type: integer, description: "Unix ms" }
+        type:
+          type: string
+          description: "opencode event type, e.g. session.created, tool.execute.after, permission.replied"
+        properties:
+          type: object
+          additionalProperties: true
+
+    RunSummary:
+      type: object
+      required: [run_id, started_at, status]
+      properties:
+        run_id: { type: string }
+        project: { type: string, nullable: true }
+        worktree: { type: string, nullable: true }
+        started_at: { type: integer }
+        ended_at: { type: integer, nullable: true }
+        status: { type: string, enum: [active, approved, rejected, aborted] }
+        task: { type: string, nullable: true, description: "Latest user prompt" }
+        rejection_reason: { type: string, nullable: true }
+        files_touched: { type: integer, default: 0 }
+        tool_calls: { type: integer, default: 0 }
+
+    Run:
+      allOf:
+        - $ref: "#/components/schemas/RunSummary"
+        - type: object
+          properties:
+            events:
+              type: array
+              items: { $ref: "#/components/schemas/EventIn" }
+            diffs:
+              type: array
+              items: { $ref: "#/components/schemas/DiffSnapshot" }
+            failure_case:
+              $ref: "#/components/schemas/FailureCase"
+              nullable: true
+
+    DiffSnapshot:
+      type: object
+      required: [files]
+      properties:
+        captured_at: { type: integer }
+        files:
+          type: array
+          items:
+            type: object
+            required: [file, status]
+            properties:
+              file: { type: string }
+              status: { type: string, enum: [added, modified, deleted, renamed] }
+              additions: { type: integer, default: 0 }
+              deletions: { type: integer, default: 0 }
+              patch: { type: string, description: "Unified diff" }
+
+    FailureCase:
+      type: object
+      required: [run_id, failure_mode, symptoms]
+      properties:
+        run_id: { type: string }
+        task_type: { type: string, nullable: true }
+        components: { type: array, items: { type: string } }
+        change_patterns: { type: array, items: { type: string } }
+        symptoms:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              evidence: { type: array, items: { type: string } }
+              confidence: { type: number, format: float, default: 0.5 }
+        failure_mode: { type: string }
+        fix_pattern: { type: string, nullable: true }
+        summary: { type: string, nullable: true }
+
+    PreflightRequest:
+      type: object
+      required: [task]
+      properties:
+        run_id: { type: string, nullable: true }
+        task: { type: string, description: "User prompt or task description" }
+        worktree: { type: string, nullable: true }
+        tool: { type: string, nullable: true, description: "If asked from tool.execute.before" }
+        args:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    PreflightResponse:
+      type: object
+      required: [risk_level]
+      properties:
+        risk_level: { type: string, enum: [none, low, medium, high] }
+        block: { type: boolean, default: false }
+        reason: { type: string, nullable: true }
+        similar_runs: { type: array, items: { type: string } }
+        missing_followups: { type: array, items: { type: string } }
+        recommended_checks: { type: array, items: { type: string } }
+        system_addendum:
+          type: string
+          nullable: true
+          description: "Markdown to append to the system prompt"
+
+    GraphNode:
+      type: object
+      required: [id, type, name]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        name: { type: string }
+        properties:
+          type: object
+          additionalProperties: true
+
+    GraphEdge:
+      type: object
+      required: [id, source_id, target_id, type]
+      properties:
+        id: { type: string }
+        source_id: { type: string }
+        target_id: { type: string }
+        type: { type: string }
+        confidence: { type: number, format: float }
+        evidence_run_id: { type: string, nullable: true }
+        properties:
+          type: object
+          additionalProperties: true
