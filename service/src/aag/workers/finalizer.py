@@ -46,29 +46,31 @@ async def on_run_complete(run_id: str) -> None:
         )
         await session.merge(row)
 
-        # Graph + embeddings. Failures here should NOT roll back the FailureCase.
-        try:
-            run = await session.get(Run, run_id)
-            if run is not None:
-                extraction = extract(ctx, fc)
+        # Graph + embeddings — separated so a failure in one doesn't block the other.
+        run = await session.get(Run, run_id)
+        if run is not None:
+            extraction = extract(ctx, fc)
+            try:
                 await gwriter.write(session, run=run, failure_case=fc, extraction=extraction)
+                await session.flush()
+            except Exception:  # noqa: BLE001
+                log.exception("run %s: graph writer failed", run_id)
+                await session.rollback()
+                row = FailureCase(
+                    run_id=fc.run_id,
+                    task_type=fc.task_type,
+                    failure_mode=fc.failure_mode,
+                    fix_pattern=fc.fix_pattern,
+                    components=fc.components,
+                    change_patterns=fc.change_patterns,
+                    symptoms=[s.model_dump() for s in fc.symptoms],
+                    summary=fc.summary,
+                )
+                await session.merge(row)
+            try:
                 await gembed.write_for(session, failure_case=fc, run=run)
-        except Exception:  # noqa: BLE001
-            log.exception("run %s: graph/embedding step failed", run_id)
-            # Roll back only the post-classify writes; commit the FailureCase
-            # via a fresh transaction below.
-            await session.rollback()
-            row = FailureCase(
-                run_id=fc.run_id,
-                task_type=fc.task_type,
-                failure_mode=fc.failure_mode,
-                fix_pattern=fc.fix_pattern,
-                components=fc.components,
-                change_patterns=fc.change_patterns,
-                symptoms=[s.model_dump() for s in fc.symptoms],
-                summary=fc.summary,
-            )
-            await session.merge(row)
+            except Exception:  # noqa: BLE001
+                log.exception("run %s: embedding step failed (graph still saved)", run_id)
 
         await session.commit()
         log.info("run %s: classified as %s", run_id, fc.failure_mode)
