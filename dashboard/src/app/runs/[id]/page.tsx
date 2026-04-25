@@ -7,6 +7,7 @@ import { OutcomeCard } from "@/components/runs/outcome-card"
 import { AutopsyCard } from "@/components/runs/autopsy-card"
 import { RunTimeline } from "@/components/runs/timeline"
 import { DiffsPanel } from "@/components/runs/diffs-panel"
+import { PreflightBanner } from "@/components/runs/preflight-banner"
 
 export const dynamic = "force-dynamic"
 
@@ -19,6 +20,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
 
   return (
     <div className="px-4 md:px-8 py-6 md:py-10 max-w-screen-2xl mx-auto space-y-6">
+      <PreflightBanner task={run.task} runId={run.run_id} />
       <RunHeader run={run} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
