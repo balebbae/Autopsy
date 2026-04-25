@@ -126,7 +126,9 @@ async def _seed_rejected_schema_run(session: AsyncSession, run_id: str) -> None:
 async def _cleanup(run_id: str) -> None:
     sm = sessionmaker()
     async with sm() as session:
-        await session.execute(delete(Embedding).where(Embedding.entity_id == run_id))
+        await session.execute(
+            delete(Embedding).where(Embedding.entity_id.like(f"{run_id}%"))
+        )
         await session.execute(delete(FailureCase).where(FailureCase.run_id == run_id))
         await session.execute(delete(GraphNode).where(GraphNode.id == f"Run:{run_id}"))
         await session.execute(delete(Run).where(Run.run_id == run_id))
@@ -179,9 +181,13 @@ def test_preflight_empty_task(client: TestClient) -> None:
 def test_preflight_finds_seeded_run(client: TestClient, seeded_run_id: str) -> None:
     """A task identical to the seeded run text → cosine distance 0 →
     the route surfaces the seeded run, its failure mode, and a
-    non-empty system addendum.
+    non-empty system addendum. Scoped by project so historical fixture
+    runs in other projects don't pollute the result.
     """
-    resp = client.post("/v1/preflight", json={"task": SCHEMA_TASK})
+    resp = client.post(
+        "/v1/preflight",
+        json={"task": SCHEMA_TASK, "project": "autopsy-tests"},
+    )
     assert resp.status_code == 200
     body = resp.json()
 

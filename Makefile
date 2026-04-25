@@ -4,11 +4,11 @@
 COMPOSE := docker-compose -f infra/docker-compose.yml
 
 .PHONY: help dev stop install \
-        compose-up compose-down compose-logs db-reset \
+        compose-up compose-down compose-logs db-reset embed-reset \
         service-install service-dev service-test service-lint \
         plugin-install plugin-link plugin-unlink \
         dashboard-install dashboard-dev \
-        seed replay clean
+        seed replay reindex clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-20s %s\n", $$1, $$2}'
@@ -40,6 +40,9 @@ compose-logs: ## Tail postgres logs
 db-reset: ## DESTRUCTIVE: drop and recreate the postgres volume
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d
+
+embed-reset: ## DESTRUCTIVE: drop + recreate embeddings table to match EMBED_PROVIDER's dim
+	cd service && uv run python ../scripts/embed-reset.py
 
 # --- Service (Python / FastAPI / uv) --------------------------------------
 
@@ -81,6 +84,9 @@ seed: ## Seed the graph with synthetic failure cases via the public API
 
 replay: ## Replay a fixture run into POST /v1/events
 	cd service && uv run python ../scripts/replay-fixture.py ../contracts/fixtures/run-rejected-schema.json
+
+reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
+	cd service && uv run python ../scripts/reindex.py
 
 clean: ## Remove generated artifacts
 	rm -rf service/.venv service/.pytest_cache service/.ruff_cache
