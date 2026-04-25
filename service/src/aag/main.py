@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from aag import __version__
 from aag.db import dispose
-from aag.routes import events, graph, preflight, runs, stream
+from aag.routes import events, graph, preflight, report, runs, stream
 
 
 @asynccontextmanager
@@ -43,3 +43,4 @@ app.include_router(runs.router, prefix="/v1", tags=["runs"])
 app.include_router(preflight.router, prefix="/v1", tags=["preflight"])
 app.include_router(stream.router, prefix="/v1", tags=["stream"])
 app.include_router(graph.router, prefix="/v1", tags=["graph"])
+app.include_router(report.router, prefix="/v1", tags=["runs"])

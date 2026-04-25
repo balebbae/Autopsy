@@ -255,6 +255,202 @@ SEED_RUNS: list[SeedRun] = [
         outcome="approved",
         feedback=None,
     ),
+    # Run 6 — Multi-symptom failure: schema_change + missing_migration +
+    # missing_test + frontend_drift (4 symptoms).
+    SeedRun(
+        run_id="seed-006",
+        task="Add email verification flow to user registration",
+        files=[
+            FileChange(
+                "src/models/user.schema.ts",
+                (
+                    "export interface User {\n"
+                    "  id: string;\n"
+                    "  email: string;\n"
+                    "  passwordHash: string;\n"
+                    "}"
+                ),
+                (
+                    "export interface User {\n"
+                    "  id: string;\n"
+                    "  email: string;\n"
+                    "  passwordHash: string;\n"
+                    "  verifiedEmail?: boolean;\n"
+                    "  verificationToken?: string;\n"
+                    "}"
+                ),
+            ),
+            FileChange(
+                "src/api/auth.ts",
+                (
+                    "import { Router } from 'express';\n"
+                    "\n"
+                    "const router = Router();\n"
+                    "\n"
+                    "router.post('/login', async (req, res) => {\n"
+                    "  // login logic\n"
+                    "});\n"
+                    "\n"
+                    "export default router;"
+                ),
+                (
+                    "import { Router } from 'express';\n"
+                    "\n"
+                    "const router = Router();\n"
+                    "\n"
+                    "router.post('/login', async (req, res) => {\n"
+                    "  // login logic\n"
+                    "});\n"
+                    "\n"
+                    "router.post('/verify-email', async (req, res) => {\n"
+                    "  const { token } = req.body;\n"
+                    "  // verify email with token\n"
+                    "  res.json({ verified: true });\n"
+                    "});\n"
+                    "\n"
+                    "export default router;"
+                ),
+            ),
+        ],
+        outcome="rejected",
+        feedback="Missing migration, no tests, and frontend types are stale",
+    ),
+    # Run 7 — Successful counter-example: agent "learned" and did everything
+    # right (migration, tests, generated types).
+    SeedRun(
+        run_id="seed-007",
+        task="Add displayName to user profile API and update frontend",
+        files=[
+            FileChange(
+                "src/models/user.schema.ts",
+                (
+                    "export interface User {\n"
+                    "  id: string;\n"
+                    "  email: string;\n"
+                    "  passwordHash: string;\n"
+                    "  verifiedEmail?: boolean;\n"
+                    "  verificationToken?: string;\n"
+                    "}"
+                ),
+                (
+                    "export interface User {\n"
+                    "  id: string;\n"
+                    "  email: string;\n"
+                    "  passwordHash: string;\n"
+                    "  verifiedEmail?: boolean;\n"
+                    "  verificationToken?: string;\n"
+                    "  displayName?: string;\n"
+                    "}"
+                ),
+            ),
+            FileChange(
+                "migrations/020_add_display_name.sql",
+                "",
+                (
+                    "ALTER TABLE users ADD COLUMN display_name TEXT;\n"
+                    "CREATE INDEX idx_users_display_name ON users (display_name);\n"
+                ),
+            ),
+            FileChange(
+                "src/api/users.ts",
+                (
+                    "router.get('/:id', async (req, res) => {\n"
+                    "  const user = await getUser(req.params.id);\n"
+                    "  res.json(user);\n"
+                    "});"
+                ),
+                (
+                    "router.get('/:id', async (req, res) => {\n"
+                    "  const user = await getUser(req.params.id);\n"
+                    "  res.json({ ...user, displayName: user.displayName });\n"
+                    "});"
+                ),
+            ),
+            FileChange(
+                "tests/users.test.ts",
+                "",
+                (
+                    "describe('GET /api/users/:id', () => {\n"
+                    "  it('should return displayName when set', async () => {\n"
+                    "    const res = await request(app).get('/api/users/1');\n"
+                    "    expect(res.body).toHaveProperty('displayName');\n"
+                    "  });\n"
+                    "});\n"
+                ),
+            ),
+            FileChange(
+                "generated/types.ts",
+                ("export interface User {\n  id: string;\n  email: string;\n}"),
+                (
+                    "export interface User {\n"
+                    "  id: string;\n"
+                    "  email: string;\n"
+                    "  displayName?: string;\n"
+                    "}"
+                ),
+            ),
+        ],
+        outcome="approved",
+        feedback=None,
+    ),
+    # Run 8 — User frustration rejection: sentiment/frustration rule trigger.
+    SeedRun(
+        run_id="seed-008",
+        task="Refactor authentication middleware to use JWT",
+        files=[
+            FileChange(
+                "src/middleware/auth.ts",
+                (
+                    "import { Request, Response, NextFunction } from 'express';\n"
+                    "\n"
+                    "export async function authMiddleware(\n"
+                    "  req: Request,\n"
+                    "  res: Response,\n"
+                    "  next: NextFunction\n"
+                    ") {\n"
+                    "  const session = req.cookies['session_id'];\n"
+                    "  if (!session) {\n"
+                    "    return res.status(401).json({ error: 'Not authenticated' });\n"
+                    "  }\n"
+                    "  const user = await validateSession(session);\n"
+                    "  if (!user) {\n"
+                    "    return res.status(401).json({ error: 'Invalid session' });\n"
+                    "  }\n"
+                    "  req.user = user;\n"
+                    "  next();\n"
+                    "}"
+                ),
+                (
+                    "import jwt from 'jsonwebtoken';\n"
+                    "import { Request, Response, NextFunction } from 'express';\n"
+                    "\n"
+                    "const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';\n"
+                    "\n"
+                    "export async function authMiddleware(\n"
+                    "  req: Request,\n"
+                    "  res: Response,\n"
+                    "  next: NextFunction\n"
+                    ") {\n"
+                    "  const token = req.headers.authorization?.split(' ')[1];\n"
+                    "  if (!token) {\n"
+                    "    return res.status(401).json({ error: 'No token provided' });\n"
+                    "  }\n"
+                    "  try {\n"
+                    "    const decoded = jwt.verify(token, JWT_SECRET);\n"
+                    "    req.user = decoded;\n"
+                    "    next();\n"
+                    "  } catch {\n"
+                    "    return res.status(401).json({ error: 'Invalid token' });\n"
+                    "  }\n"
+                    "}"
+                ),
+            ),
+        ],
+        outcome="rejected",
+        feedback=(
+            "This is completely wrong, you broke the existing session handling. Undo everything."
+        ),
+    ),
 ]
 
 
