@@ -71,10 +71,11 @@ See `docs/ownership.md` for who owns which directory.
 
 ## What's left to build
 
-R1 (Plugin) and R2 (Service ingestion) are essentially complete. R3 (Analyzer/Graph)
-is mostly stubs. R4 (Dashboard) is ~60% done.
+R1 (Plugin) and R2 (Service ingestion) are complete. R3 (Analyzer/Graph) is
+partially built — classifier and extractor are done, graph + preflight are stubs.
+R4 (Dashboard) is ~60% done.
 
-### R3 — Analyzer & Knowledge Graph (core gaps)
+### R3 — Analyzer & Knowledge Graph
 
 - [x] **Failure classifier** — rules-based pipeline: loads run+events+diffs, runs
       all rules, merges symptoms, picks highest-confidence failure mode. Currently
@@ -86,15 +87,14 @@ is mostly stubs. R4 (Dashboard) is ~60% done.
   - `rules/missing_migration.py` — detect missing migration when schema_change fires
   - `rules/missing_test.py` — detect code changes without corresponding test changes
   - `rules/frontend_drift.py` — detect backend type changes without frontend regen
-- [ ] **Entity extractor** — `analyzer/extractor.py` is empty. Needs to pull Files, Components,
-      ChangePatterns from run events.
+- [x] **Entity extractor** — extracts files, components, tool calls, errors (stderr/exit
+      codes), and threads classifier output into a structured `Extraction` for the graph writer.
+- [x] **Finalizer wiring** — `workers/finalizer.py` chains classifier → persist FailureCase
+      on run completion. Wired into the outcome route.
 - [ ] **Graph writer orchestrator** — `upsert_node()` and `upsert_edge()` helpers exist, but no
       top-level pipeline that ties classifier output into graph construction.
 - [ ] **Preflight traversal** — `graph/traversal.py` returns an empty response. Needs ANN vector
       search + 2-hop CTE over graph edges.
-- [ ] **Finalizer wiring** — `workers/finalizer.py` is a no-op. Needs to chain
-      classifier → graph writer → embeddings on run completion. Hook point in the outcome
-      route exists but isn't connected.
 - [ ] **Embedding write path** — stub provider works, but `embeddings.write_for()` isn't called
       from anywhere yet.
 - [ ] **Graph API routes** — `GET /v1/graph/nodes` and `GET /v1/graph/edges` are in the OpenAPI
@@ -112,12 +112,15 @@ is mostly stubs. R4 (Dashboard) is ~60% done.
 
 ### Plugin
 
+- [x] **opencode 1.x API compatibility** — plugin reworked for opencode 1.x hook shape,
+      rejection handling piggybacks on bus events.
 - [ ] **Task enrichment** — `onToolBefore` posts an empty task string; should include the latest
       user message from the SDK client.
 
 ### Tests
 
-- [ ] Only one test exists (`test_health.py`). No coverage for ingestion, routes, analyzer, or graph.
+- [x] Classifier + extractor unit tests (25 tests covering rules, helpers, extraction).
+- [ ] Integration tests (ingestion routes, outcome → finalizer → DB pipeline).
 
 ## Demo loop
 

@@ -9,10 +9,12 @@ from aag.analyzer.classifier import (
 from aag.analyzer.extractor import extract_components
 from aag.analyzer.rules import (
     ALL_RULES,
+    REJECTION_RULE,
     frontend_drift,
     missing_migration,
     missing_test,
     schema_change,
+    sentiment,
 )
 from aag.schemas.runs import Symptom
 
@@ -134,6 +136,51 @@ class TestClassifierHelpers:
         assert "+d" in result
 
 
+class TestRejectionReasonRule:
+    def test_detects_migration_in_reason(self):
+        ctx = _fixture_context()
+        results = REJECTION_RULE.check(ctx)
+        names = {s.name for s in results}
+        assert "missing_migration" in names
+        assert all(s.confidence == 0.9 for s in results)
+
+    def test_detects_multiple_signals(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason="Missing tests and the migration is wrong",
+        )
+        results = REJECTION_RULE.check(ctx)
+        names = {s.name for s in results}
+        assert "missing_test" in names
+        assert "missing_migration" in names
+
+    def test_no_match_without_reason(self):
+        ctx = RunContext(run_id="r1", task=None, status="rejected", rejection_reason=None)
+        assert REJECTION_RULE.check(ctx) == []
+
+    def test_no_match_on_generic_reason(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason="I don't like it",
+        )
+        assert REJECTION_RULE.check(ctx) == []
+
+    def test_security_concern(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason="This exposes the auth token in the response",
+        )
+        results = REJECTION_RULE.check(ctx)
+        names = {s.name for s in results}
+        assert "security_concern" in names
+
+
 class TestAllRulesOnFixture:
     def test_fixture_produces_expected_output(self):
         ctx = _fixture_context()
@@ -142,6 +189,7 @@ class TestAllRulesOnFixture:
             result = rule.check(ctx)
             if result is not None:
                 symptoms.append(result)
+        symptoms.extend(REJECTION_RULE.check(ctx))
 
         symptom_names = {s.name for s in symptoms}
         assert "schema_field_addition" in symptom_names
@@ -153,3 +201,69 @@ class TestAllRulesOnFixture:
 
         components = extract_components(ctx.files)
         assert "profile" in components
+
+
+class TestSentimentRule:
+    def test_detects_profanity(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["this is shit, redo it"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert result.name == "user_frustration"
+        assert result.confidence >= 0.6
+
+    def test_detects_strong_negative(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["revert all of this"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert result.name == "user_frustration"
+
+    def test_scales_confidence_with_multiple(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["wtf is this", "this sucks", "are you serious"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert result.confidence >= 0.8
+
+    def test_no_match_on_neutral(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["looks good, ship it"],
+        )
+        assert sentiment.check(ctx) is None
+
+    def test_no_match_on_empty(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=[],
+        )
+        assert sentiment.check(ctx) is None
+
+    def test_picks_user_dissatisfaction_mode(self):
+        symptoms = [
+            Symptom(name="user_frustration", confidence=0.8),
+        ]
+        mode = _pick_failure_mode(symptoms)
+        assert mode == "user_dissatisfaction"

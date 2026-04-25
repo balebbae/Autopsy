@@ -22,12 +22,22 @@ SYMPTOM_TO_MODE: dict[str, str] = {
     "missing_migration": "incomplete_schema_change",
     "missing_test": "missing_test_coverage",
     "frontend_type_drift": "frontend_backend_drift",
+    "regression": "regression",
+    "wrong_target": "wrong_target",
+    "security_concern": "security_concern",
+    "performance_concern": "performance_concern",
+    "user_frustration": "user_dissatisfaction",
 }
 
 MODE_TO_FIX: dict[str, str] = {
     "incomplete_schema_change": "Add database migration and regenerate types after schema changes",
     "missing_test_coverage": "Add or update tests covering the changed code paths",
     "frontend_backend_drift": "Regenerate frontend types after backend type changes",
+    "regression": "Check for regressions in existing functionality before committing",
+    "wrong_target": "Verify the correct files and locations before making changes",
+    "security_concern": "Review changes for security implications",
+    "performance_concern": "Profile and benchmark before and after the change",
+    "user_dissatisfaction": "Address user feedback before continuing with changes",
 }
 
 
@@ -40,6 +50,9 @@ class RunContext:
     files: list[str] = field(default_factory=list)
     patches: dict[str, str] = field(default_factory=dict)
     events: list[dict] = field(default_factory=list)
+    user_messages: list[str] = field(default_factory=list)
+    assistant_messages: list[str] = field(default_factory=list)
+    tool_commands: list[dict] = field(default_factory=list)
 
 
 async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
@@ -49,13 +62,15 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
 
     ctx = await _build_context(session, run)
 
-    from aag.analyzer.rules import ALL_RULES
+    from aag.analyzer.rules import ALL_RULES, REJECTION_RULE
 
     symptoms: list[Symptom] = []
     for rule in ALL_RULES:
         result = rule.check(ctx)
         if result is not None:
             symptoms.append(result)
+
+    symptoms.extend(REJECTION_RULE.check(ctx))
 
     if not symptoms:
         return None
@@ -101,6 +116,8 @@ async def _build_context(session: AsyncSession, run: Run) -> RunContext:
                 new = content.get("newText", "")
                 patches[path] = _inline_diff(old, new)
 
+    user_messages, assistant_messages, tool_commands = _extract_conversation(events)
+
     return RunContext(
         run_id=run.run_id,
         task=run.task,
@@ -109,7 +126,50 @@ async def _build_context(session: AsyncSession, run: Run) -> RunContext:
         files=files,
         patches=patches,
         events=[{"type": e.type, "ts": e.ts, "properties": e.properties} for e in events],
+        user_messages=user_messages,
+        assistant_messages=assistant_messages,
+        tool_commands=tool_commands,
     )
+
+
+def _extract_conversation(
+    events: list,
+) -> tuple[list[str], list[str], list[dict]]:
+    user_messages: list[str] = []
+    assistant_messages: list[str] = []
+    tool_commands: list[dict] = []
+
+    for ev in events:
+        props = ev.properties or {}
+
+        if ev.type == "message.part.updated":
+            part = props.get("part") or {}
+            text = part.get("text", "")
+            if not text or not text.strip():
+                continue
+            part_type = part.get("type", "")
+            if part_type == "text":
+                # opencode doesn't include a role field. User text parts lack
+                # a "time" key; assistant text parts always have one.
+                if "time" not in part:
+                    user_messages.append(text.strip())
+                else:
+                    assistant_messages.append(text.strip())
+
+        elif ev.type == "tool.execute.after":
+            tool = props.get("tool", "")
+            args = props.get("args") or {}
+            result = props.get("result") or {}
+            entry = {"tool": tool, **args}
+            stderr = result.get("stderr", "")
+            exit_code = result.get("exitCode")
+            if stderr:
+                entry["stderr"] = stderr[:500]
+            if exit_code is not None and exit_code != 0:
+                entry["exit_code"] = exit_code
+            tool_commands.append(entry)
+
+    return user_messages, assistant_messages, tool_commands
 
 
 def _inline_diff(old: str, new: str) -> str:
