@@ -10,6 +10,7 @@
 
 import { onEvent } from "./handlers/event.ts"
 import { onPermissionAsk } from "./handlers/permission.ts"
+import { makeRejectionTool } from "./handlers/register-rejection.ts"
 import { onSystemTransform } from "./handlers/system.ts"
 import { onToolAfter } from "./handlers/tool-after.ts"
 import { onToolBefore } from "./handlers/tool-before.ts"
@@ -20,18 +21,32 @@ const Autopsy = async (ctx: {
   worktree?: string
   client?: unknown
   $?: unknown
-}) => ({
-  event: (input: { event: { type: string; properties: Record<string, unknown> } }) =>
-    onEvent(input, ctx),
+}) => {
+  // Dynamically import tool() from the opencode plugin SDK. This resolves
+  // from .opencode/node_modules at runtime (opencode loads us from there).
+  let rejectionTool: any = undefined
+  try {
+    const { tool } = await import("@opencode-ai/plugin/tool")
+    rejectionTool = makeRejectionTool(tool)
+  } catch {
+    // Plugin still works for event recording — just no custom tool.
+  }
 
-  "tool.execute.before": (input: any, output: any) => onToolBefore(input, output),
-  "tool.execute.after": (input: any, output: any) => onToolAfter(input, output),
+  return {
+    event: (input: { event: { type: string; properties: Record<string, unknown> } }) =>
+      onEvent(input, ctx),
 
-  "permission.ask": (input: any, output: any) => onPermissionAsk(input, output),
+    "tool.execute.before": (input: any, output: any) => onToolBefore(input, output),
+    "tool.execute.after": (input: any, output: any) => onToolAfter(input, output),
 
-  "experimental.chat.system.transform": (input: any, output: any) =>
-    onSystemTransform(input, output),
-})
+    "permission.ask": (input: any, output: any) => onPermissionAsk(input, output),
+
+    "experimental.chat.system.transform": (input: any, output: any) =>
+      onSystemTransform(input, output),
+
+    ...(rejectionTool ? { tool: { autopsy_register_rejection: rejectionTool } } : {}),
+  }
+}
 
 export default { id: "autopsy", server: Autopsy }
 export { Autopsy }
