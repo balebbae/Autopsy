@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { ConfidenceBar } from "@/components/primitives/confidence-bar"
 import { Separator } from "@/components/ui/separator"
 import { EmptyState } from "@/components/primitives/empty-state"
+import { humanize, humanizeFailureMode, humanizeSymptom } from "@/lib/labels"
 
 export function AutopsyCard({
   failure,
@@ -68,8 +69,9 @@ export function AutopsyCard({
           <Badge
             variant="outline"
             className="mt-1.5 text-sm font-medium bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 py-1 px-2.5"
+            title={failure.failure_mode}
           >
-            {failure.failure_mode}
+            {humanizeFailureMode(failure.failure_mode)}
           </Badge>
         </div>
         {failure.fix_pattern ? (
@@ -92,7 +94,9 @@ export function AutopsyCard({
               {failure.symptoms.map((s) => (
                 <li key={s.name}>
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium">{s.name}</span>
+                    <span className="text-sm font-medium" title={s.name}>
+                      {humanizeSymptom(s.name)}
+                    </span>
                   </div>
                   <ConfidenceBar value={s.confidence} className="mt-1" />
                   {s.evidence?.length ? (
@@ -134,8 +138,13 @@ export function AutopsyCard({
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {failure.change_patterns.map((c) => (
-                      <Badge key={c} variant="muted" className="font-mono text-[10px]">
-                        {c}
+                      <Badge
+                        key={c}
+                        variant="muted"
+                        className="text-[10px]"
+                        title={c}
+                      >
+                        {humanize(c)}
                       </Badge>
                     ))}
                   </div>

@@ -12,6 +12,7 @@ import type { FailureCase, Rejection, Run } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { humanizeFailureMode } from "@/lib/labels"
 
 export function OutcomeCard({ run }: { run: Run }) {
   const rejections = run.rejections ?? []
@@ -54,9 +55,10 @@ export function OutcomeCard({ run }: { run: Run }) {
             {failure ? (
               <Badge
                 variant="outline"
-                className="text-[10px] py-0.5 px-1.5 bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 font-mono"
+                className="text-[10px] py-0.5 px-1.5 bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30"
+                title={failure.failure_mode}
               >
-                {failure.failure_mode}
+                {humanizeFailureMode(failure.failure_mode)}
               </Badge>
             ) : analyzing ? (
               <AnalyzingPill compact />
@@ -221,7 +223,9 @@ function RejectionList({ rejections }: { rejections: Rejection[] }) {
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/15 px-1 text-[10px] tabular-nums">
               {idx + 1}
             </span>
-            <span className="text-foreground/80">{r.failure_mode ?? "rejection"}</span>
+            <span className="text-foreground/80" title={r.failure_mode ?? undefined}>
+              {r.failure_mode ? humanizeFailureMode(r.failure_mode) : "Rejection"}
+            </span>
             <span className="text-muted-foreground tabular-nums ml-auto">
               {new Date(r.ts).toLocaleTimeString()}
             </span>
