@@ -1,7 +1,7 @@
 // Permission asks and replies are already streamed through the `event` hook.
-// We additionally listen for a reject reply and post the run outcome so the
-// service can trigger the analyzer.
-import { postFeedback, postOutcome } from "../client.ts";
+// We additionally listen for a reject reply and file a rejection so the
+// service can trigger the analyzer — without ending the thread.
+import { postFeedback, postRejection } from "../client.ts";
 
 export const onPermissionAsk = async (_input: unknown, _output: unknown) => {
   return;
@@ -17,6 +17,10 @@ export const onPermissionReplied = async (props: {
   feedback?: string;
 }) => {
   if (props.reply !== "reject") return;
-  await postOutcome(props.sessionID, "rejected", props.feedback);
+  // File a rejection but keep the run active so the agent can recover.
+  await postRejection(props.sessionID, {
+    reason: props.feedback || "User denied a permission request.",
+    failure_mode: "user_permission_denied",
+  });
   if (props.feedback) await postFeedback(props.sessionID, props.feedback);
 };

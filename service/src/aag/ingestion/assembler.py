@@ -21,7 +21,6 @@ SESSION_UPDATED = "session.updated"
 SESSION_IDLE = "session.idle"
 SESSION_DIFF = "session.diff"
 TOOL_AFTER = "tool.execute.after"
-PERMISSION_REPLIED = "permission.replied"
 
 
 async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
@@ -98,12 +97,26 @@ async def apply_event_side_effects(session: AsyncSession, ev: EventIn) -> None:
             )
             run.files_touched = max(run.files_touched, len(diffs))
 
-    elif ev.type == PERMISSION_REPLIED and ev.properties.get("reply") == "reject":
-        run.status = "rejected"
-        run.ended_at = run.ended_at or ev.ts
-
     elif ev.type == SESSION_IDLE and run.status == "active":
-        run.ended_at = run.ended_at or ev.ts
+        # Mark the *current* idle time, but never as a terminal end. The
+        # plugin / dashboard explicitly call /v1/runs/:id/outcome to end a
+        # run; opencode's session.idle is just "no activity right now" and
+        # frequently un-idles when the user sends another message. We
+        # overwrite (not "or") so a fresher idle replaces the stale one,
+        # and any non-idle event below clears it.
+        run.ended_at = ev.ts
+
+    # Any non-idle event on an active run means the thread is doing work
+    # again — wipe the previous idle marker so the dashboard doesn't keep
+    # showing "Ended Xs ago" while events are still streaming in.
+    if run.status == "active" and ev.type != SESSION_IDLE and run.ended_at is not None:
+        run.ended_at = None
+
+    # Note: permission.replied=reject is *not* terminal anymore. The plugin
+    # files a rejection via POST /v1/runs/:id/rejections (which records the
+    # row, bumps rejection_count, and triggers the analyzer) without
+    # changing run.status. The thread keeps streaming so the agent can
+    # recover from the failure.
 
 
 async def list_run_events(session: AsyncSession, run_id: str) -> list[RunEvent]:

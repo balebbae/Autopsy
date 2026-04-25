@@ -1,5 +1,5 @@
 import { enqueue } from "../batcher.ts"
-import { postFeedback, postOutcome } from "../client.ts"
+import { postFeedback, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
 
@@ -25,7 +25,7 @@ const isEmptyDiff = (props: Record<string, unknown>) => {
 const FRUSTRATION_RE =
   /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said))\b/i
 
-// Track sessions where we already fired a frustration outcome so we don't spam.
+// Track sessions where we already fired a frustration rejection so we don't spam.
 const firedSessions = new Set<string>()
 
 // Entry for the `event` hook. opencode 1.x wraps the bus event in `{ event }`.
@@ -47,11 +47,14 @@ export const onEvent = async (
   // --- Side-effects that must run BEFORE the noise filter ---
 
   if (e.type === "permission.replied" && props.reply === "reject") {
-    await postOutcome(runId, "rejected", props.feedback)
+    await postRejection(runId, {
+      reason: props.feedback || "User denied a permission request.",
+      failure_mode: "user_permission_denied",
+    })
     if (props.feedback) await postFeedback(runId, props.feedback as string)
   }
 
-  // Auto-detect frustrated user messages and trigger the rejection pipeline.
+  // Auto-detect frustrated user messages and file a rejection.
   // message.part.updated is in NOISY_TYPES (not persisted) but we still
   // scan it here. User text parts have type=text and no "time" field.
   if (
@@ -64,7 +67,10 @@ export const onEvent = async (
   ) {
     firedSessions.add(runId)
     const snippet = props.part.text.slice(0, 300)
-    await postOutcome(runId, "rejected", snippet)
+    await postRejection(runId, {
+      reason: snippet,
+      failure_mode: "frustrated_user",
+    })
     await postFeedback(runId, snippet)
   }
 

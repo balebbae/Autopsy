@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   CircleSlash,
+  Loader2,
   MessageSquareWarning,
   Wand2,
 } from "lucide-react"
@@ -16,6 +17,11 @@ export function OutcomeCard({ run }: { run: Run }) {
   const rejections = run.rejections ?? []
   const count = rejections.length || run.rejection_count || 0
   const failure = run.failure_case ?? null
+  // "Has rejection signal but no analyzer output yet" — show a small
+  // pill so users know we're still classifying.
+  const analyzing =
+    !failure &&
+    (count > 0 || run.status === "rejected" || run.status === "aborted")
 
   if (run.status === "active") {
     return (
@@ -33,6 +39,7 @@ export function OutcomeCard({ run }: { run: Run }) {
             : null}
         </p>
         {rejections.length > 0 ? <RejectionList rejections={rejections} /> : null}
+        {analyzing ? <AnalyzingPill /> : null}
         {failure ? <FailureSummary failure={failure} /> : null}
       </Card>
     )
@@ -52,6 +59,8 @@ export function OutcomeCard({ run }: { run: Run }) {
               >
                 {failure.failure_mode}
               </Badge>
+            ) : analyzing ? (
+              <AnalyzingPill compact />
             ) : null}
             {count > 0 ? <RejectionBadge count={count} tone="rejected" /> : null}
           </div>
@@ -148,6 +157,23 @@ function FailureSummary({ failure }: { failure: FailureCase }) {
       ) : null}
       {failure.fix_pattern ? <SuggestedFix text={failure.fix_pattern} /> : null}
     </div>
+  )
+}
+
+function AnalyzingPill({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Analyzing
+      </span>
+    )
+  }
+  return (
+    <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+      Classifying failure mode and gemma reasoning…
+    </p>
   )
 }
 

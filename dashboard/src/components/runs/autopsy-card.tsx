@@ -1,21 +1,52 @@
 import * as React from "react"
-import { Microscope, Wand2 } from "lucide-react"
+import { Loader2, Microscope, Wand2 } from "lucide-react"
 
-import type { FailureCase } from "@/lib/api"
+import type { FailureCase, Run } from "@/lib/api"
 import { SectionCard } from "@/components/primitives/section-card"
 import { Badge } from "@/components/ui/badge"
 import { ConfidenceBar } from "@/components/primitives/confidence-bar"
 import { Separator } from "@/components/ui/separator"
 import { EmptyState } from "@/components/primitives/empty-state"
 
-export function AutopsyCard({ failure }: { failure: FailureCase | null }) {
+export function AutopsyCard({
+  failure,
+  run,
+}: {
+  failure: FailureCase | null
+  // Optional — when provided, AutopsyCard can distinguish "no analysis
+  // yet (idle)" from "analysis in flight (waiting on classifier/gemma)".
+  run?: Pick<Run, "status" | "rejection_count">
+}) {
   if (!failure) {
+    const analyzing =
+      run != null &&
+      ((run.rejection_count ?? 0) > 0 ||
+        run.status === "rejected" ||
+        run.status === "aborted")
+    if (analyzing) {
+      return (
+        <SectionCard title="Autopsy" description="Classifying failure mode + symptoms">
+          <div className="py-10 px-2 flex items-center justify-center text-center">
+            <div className="space-y-3">
+              <Loader2 className="h-7 w-7 mx-auto text-primary animate-spin" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Analyzing run…</p>
+                <p className="text-xs text-muted-foreground max-w-[28ch] mx-auto leading-snug">
+                  Running the rules pass and gemma classification on the
+                  events captured so far. This usually takes a few seconds.
+                </p>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      )
+    }
     return (
       <SectionCard title="Autopsy" description="Run analyzer output">
         <EmptyState
           Icon={Microscope}
           title="No autopsy yet"
-          description="The analyzer (R3) hasn't been wired in. Once it lands, classified failure modes and symptoms appear here."
+          description="No rejection has been filed on this run. The analyzer runs after a rejection, or when the run terminates with /outcome."
           className="py-10"
         />
       </SectionCard>
