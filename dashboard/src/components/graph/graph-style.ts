@@ -6,7 +6,7 @@ export type NodeStyleConfig = {
   borderColor: string
   textColor: string
   icon: string
-  shape: "rounded" // All nodes use unified card design
+  shape: "rounded" | "pill" | "hexagon" | "diamond"
 }
 
 // Modern color palette with better contrast and visual hierarchy
