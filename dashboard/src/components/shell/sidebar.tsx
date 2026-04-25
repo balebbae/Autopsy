@@ -7,16 +7,16 @@ import {
   Activity,
   ArrowLeftRight,
   BarChart3,
+  Microscope,
   Network,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/", label: "Runs", icon: Activity, match: (p: string) => p === "/" || p.startsWith("/runs") },
-  { href: "/graph", label: "Failure Graph", icon: Network, match: (p: string) => p.startsWith("/graph") },
+  { href: "/graph", label: "Graph", icon: Network, match: (p: string) => p.startsWith("/graph") },
   { href: "/preflight", label: "Preflight", icon: ShieldCheck, match: (p: string) => p.startsWith("/preflight") },
   { href: "/analytics", label: "Analytics", icon: BarChart3, match: (p: string) => p.startsWith("/analytics") },
   { href: "/compare", label: "Compare", icon: ArrowLeftRight, match: (p: string) => p.startsWith("/compare") },
@@ -26,14 +26,14 @@ export function Sidebar() {
   const pathname = usePathname()
   return (
     <aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-border bg-card/30 backdrop-blur-xl">
-      <div className="px-5 py-5 flex items-center gap-2">
+      <div className="px-5 py-5 flex items-center gap-2.5">
         <div className="relative h-8 w-8 rounded-md bg-gradient-to-br from-primary to-primary/40 grid place-items-center text-primary-foreground shadow">
-          <Sparkles className="h-4 w-4" />
+          <Microscope className="h-4 w-4" />
         </div>
         <div className="flex flex-col">
-          <span className="text-sm font-semibold leading-tight">Autopsy</span>
+          <span className="text-sm font-semibold leading-tight">Agent Autopsy</span>
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground leading-tight">
-            Agent Graph
+            Failure Memory
           </span>
         </div>
       </div>

@@ -435,7 +435,13 @@ export function GraphExplorer() {
             <EmptyState
               Icon={Network}
               title="No graph data yet"
-              description="The /v1/graph routes haven't been implemented yet. Run `make replay` then `make seed` to populate the failure graph, or append ?mock=1 to preview the layout with the demo fixture."
+              description={
+                <>
+                  Run <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">make seed</code> to
+                  populate the failure graph, or append <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">?mock=1</code> to
+                  preview the layout with demo data.
+                </>
+              }
               action={
                 <div className="flex items-center gap-2">
                   <Button onClick={() => mutate()} variant="outline">

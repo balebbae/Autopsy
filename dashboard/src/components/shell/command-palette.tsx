@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import useSWR from "swr"
-import { Activity, Moon, Network, ShieldCheck, Sun, Terminal } from "lucide-react"
+import { Activity, ArrowLeftRight, Moon, Network, ShieldCheck, Sun, Terminal } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import {
@@ -83,6 +83,10 @@ export function CommandPalette() {
             <CommandItem onSelect={() => go("/preflight")}>
               <ShieldCheck /> Preflight
               <CommandShortcut>g p</CommandShortcut>
+            </CommandItem>
+            <CommandItem onSelect={() => go("/compare")}>
+              <ArrowLeftRight /> Compare
+              <CommandShortcut>g c</CommandShortcut>
             </CommandItem>
           </CommandGroup>
           <CommandSeparator />

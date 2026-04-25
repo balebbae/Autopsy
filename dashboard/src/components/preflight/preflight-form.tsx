@@ -228,7 +228,12 @@ function ResponseCard({
           <RiskPill level={r.risk_level} blocked={r.block} />
         </div>
 
-        {r.reason ? (
+        {r.risk_level === "none" && !r.reason ? (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            All clear — no known failure patterns match this task.
+          </div>
+        ) : r.reason ? (
           <div
             className={cn(
               "rounded-md border p-3 text-sm",
@@ -236,7 +241,7 @@ function ResponseCard({
                 ? "border-red-500/30 bg-red-500/5 text-red-700 dark:text-red-300"
                 : r.risk_level === "medium"
                   ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-200"
-                  : "border-border bg-muted/30 text-muted-foreground",
+                  : "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300",
             )}
           >
             {r.reason}

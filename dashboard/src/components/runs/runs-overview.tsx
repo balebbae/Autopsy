@@ -216,9 +216,15 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
               Icon={Sparkles}
               title={runs.length === 0 ? "No runs recorded yet" : "No runs match these filters"}
               description={
-                runs.length === 0
-                  ? "Link the opencode plugin and start a session, or run `make replay` to load the demo fixture."
-                  : "Try clearing the project, status, or search filters."
+                runs.length === 0 ? (
+                  <>
+                    Run <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">make seed</code> to
+                    populate with synthetic failures, or <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">make replay</code> to
+                    load the demo fixture.
+                  </>
+                ) : (
+                  "Try clearing the project, status, or search filters."
+                )
               }
             />
           </div>
