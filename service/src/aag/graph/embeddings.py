@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import hashlib
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from aag.config import get_settings
+from aag.models import Embedding, Run
+from aag.schemas.runs import FailureCaseOut
 
 
 def _stub_embed(text: str, dim: int) -> list[float]:
@@ -51,3 +56,43 @@ def _local_model(name: str):
     if name not in _local_cache:
         _local_cache[name] = SentenceTransformer(name)
     return _local_cache[name]
+
+
+async def write_for(
+    session: AsyncSession,
+    *,
+    failure_case: FailureCaseOut,
+    run: Run,
+) -> None:
+    """Compute and upsert embeddings for task / failure / fix / run_summary text.
+
+    The caller owns the transaction — this function does not commit.
+    Texts whose ``.strip()`` is empty are skipped.
+    """
+    symptom_names = ", ".join(s.name for s in failure_case.symptoms)
+    change_patterns = ", ".join(failure_case.change_patterns)
+
+    items: list[tuple[str, str, str | None]] = [
+        ("task", run.run_id, run.task or ""),
+        ("failure", run.run_id, f"{failure_case.failure_mode}: {symptom_names}"),
+        ("fix", run.run_id, failure_case.fix_pattern),
+        (
+            "run_summary",
+            run.run_id,
+            " | ".join(filter(None, [run.task, failure_case.failure_mode, change_patterns])),
+        ),
+    ]
+
+    for etype, eid, text in items:
+        if text is None or not text.strip():
+            continue
+        vec = await embed(text)
+        stmt = (
+            pg_insert(Embedding)
+            .values(entity_type=etype, entity_id=eid, text=text, vector=vec)
+            .on_conflict_do_update(
+                index_elements=["entity_type", "entity_id"],
+                set_={"text": text, "vector": vec},
+            )
+        )
+        await session.execute(stmt)

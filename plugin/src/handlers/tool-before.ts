@@ -1,5 +1,6 @@
 import { config } from "../config.ts"
 import { preflight } from "../client.ts"
+import { latestUserMessage } from "../last-task.ts"
 
 // `tool.execute.before` runs synchronously in the agent path, so we keep the
 // preflight call fast (bounded backend latency) and only invoke it for tools
@@ -12,7 +13,10 @@ export const onToolBefore = async (
 
   const risk = await preflight({
     run_id: input.sessionID,
-    task: "",  // R1: enrich w/ latest user message via the SDK client if needed
+    // Sourced from the in-memory buffer populated by `onEvent` whenever a
+    // user-authored chat message flows through the bus (see last-task.ts).
+    // Falls back to "" if no user message has been observed yet this session.
+    task: latestUserMessage() ?? "",
     tool: input.tool,
     args: output.args,
   })

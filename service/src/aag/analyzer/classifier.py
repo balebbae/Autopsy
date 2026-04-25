@@ -42,10 +42,12 @@ class RunContext:
     events: list[dict] = field(default_factory=list)
 
 
-async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
+async def classify(
+    session: AsyncSession, run_id: str
+) -> tuple[RunContext | None, FailureCaseOut | None]:
     run = await session.get(Run, run_id)
     if run is None:
-        return None
+        return None, None
 
     ctx = await _build_context(session, run)
 
@@ -58,7 +60,7 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
             symptoms.append(result)
 
     if not symptoms:
-        return None
+        return ctx, None
 
     failure_mode = _pick_failure_mode(symptoms)
     change_patterns = [s.name for s in symptoms]
@@ -66,7 +68,7 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
     fix_pattern = MODE_TO_FIX.get(failure_mode)
     summary = ctx.rejection_reason or ", ".join(s.name for s in symptoms)
 
-    return FailureCaseOut(
+    return ctx, FailureCaseOut(
         run_id=run_id,
         task_type=_infer_task_type(ctx.task),
         failure_mode=failure_mode,
