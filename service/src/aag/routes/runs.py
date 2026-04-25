@@ -229,20 +229,22 @@ async def post_rejection(run_id: str, body: RejectionIn, session: SessionDep) ->
     )
     session.add(row)
 
-    run.rejection_count = (run.rejection_count or 0) + 1
+    # Atomic increment via SQL expression to avoid read-modify-write races
+    # when multiple rejections land near-concurrently on the same run.
+    run.rejection_count = Run.rejection_count + 1  # type: ignore[assignment]
     run.rejection_reason = body.reason
     await session.commit()
     await session.refresh(row)
+    await session.refresh(run)
 
-    # Per-rejection analyzer + graph write. Failures here must not bubble
-    # up to the request — the rejection itself is already persisted.
-    try:
-        from aag.workers.finalizer import on_rejection_filed
+    # Per-rejection analyzer + graph write. Run as a background task so the
+    # plugin's fire-and-forget POST returns 201 immediately — gemma + graph
+    # write can take several seconds and we don't want to block on them.
+    # Failures inside the task are logged by the worker itself.
+    import asyncio
 
-        await on_rejection_filed(run_id, reason=body.reason)
-    except Exception:  # noqa: BLE001
-        import logging
+    from aag.workers.finalizer import on_rejection_filed
 
-        logging.getLogger(__name__).exception("run %s: post-rejection analyzer hook failed", run_id)
+    asyncio.create_task(on_rejection_filed(run_id, reason=body.reason))
 
     return _rejection_to_out(row)

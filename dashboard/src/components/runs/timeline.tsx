@@ -213,10 +213,7 @@ function TimelineRow({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
-      className={cn(
-        "relative pr-2",
-        severity === "muted" ? "py-1" : "py-1",
-      )}
+      className="relative pr-2 py-1"
     >
       <button
         type="button"

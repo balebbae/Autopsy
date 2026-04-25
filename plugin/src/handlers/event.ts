@@ -26,7 +26,40 @@ const isEmptyDiff = (props: Record<string, unknown>) => {
 // to suppress *initial* empty diffs (before any change has been made) but
 // allow empty diffs *after* a non-empty one through, because that signals
 // the user reverted all prior changes — which the dashboard needs to show.
+//
+// Bounded LRU so long-running opencode processes that touch many sessions
+// don't leak memory. 256 sessions is generous for any realistic workflow.
+const SESSIONS_WITH_DIFF_LIMIT = 256
 const sessionsWithDiff = new Set<string>()
+const markSessionWithDiff = (runId: string) => {
+  if (sessionsWithDiff.has(runId)) {
+    // Move to the most-recently-used end so the oldest is evicted first.
+    sessionsWithDiff.delete(runId)
+    sessionsWithDiff.add(runId)
+    return
+  }
+  sessionsWithDiff.add(runId)
+  if (sessionsWithDiff.size > SESSIONS_WITH_DIFF_LIMIT) {
+    const oldest = sessionsWithDiff.values().next().value
+    if (oldest !== undefined) sessionsWithDiff.delete(oldest)
+  }
+}
+
+// Bounded LRU of `${sessionID}:${permissionID}` keys we've already filed
+// rejections for. opencode occasionally re-emits the same permission.replied
+// event (e.g. on reconnect or session.updated cascades); this dedupes them
+// so we don't spam the dashboard with duplicate rejection rows.
+const FIRED_PERMISSIONS_LIMIT = 1024
+const firedPermissions = new Set<string>()
+const markPermissionFired = (key: string): boolean => {
+  if (firedPermissions.has(key)) return false
+  firedPermissions.add(key)
+  if (firedPermissions.size > FIRED_PERMISSIONS_LIMIT) {
+    const oldest = firedPermissions.values().next().value
+    if (oldest !== undefined) firedPermissions.delete(oldest)
+  }
+  return true
+}
 
 // Words / phrases that strongly signal the user is unhappy with the
 // agent's last action. Kept intentionally aggressive — we only fire once
@@ -70,11 +103,23 @@ export const onEvent = async (
       properties: e.properties,
     })
     await flush()
-    await postRejection(runId, {
-      reason: props.feedback || "User denied a permission request.",
-      failure_mode: "user_permission_denied",
-    })
-    if (props.feedback) await postFeedback(runId, props.feedback as string)
+
+    // Dedupe by permissionID so re-emitted events don't double-file. If
+    // opencode doesn't include a permissionID for some reason, fall back
+    // to the event timestamp so identical events in the same millisecond
+    // still collapse, but legitimate distinct denials still go through.
+    const permissionID =
+      (props as { permissionID?: string; id?: string }).permissionID ??
+      (props as { permissionID?: string; id?: string }).id ??
+      `ts:${Date.now()}`
+    const key = `${runId}:${permissionID}`
+    if (markPermissionFired(key)) {
+      await postRejection(runId, {
+        reason: props.feedback || "User denied a permission request.",
+        failure_mode: "user_permission_denied",
+      })
+      if (props.feedback) await postFeedback(runId, props.feedback as string)
+    }
     return // already enqueued; don't double-record below
   }
 
@@ -161,7 +206,7 @@ export const onEvent = async (
   if (e.type === "session.diff") {
     const empty = isEmptyDiff(e.properties ?? {})
     if (empty && !sessionsWithDiff.has(runId)) return
-    if (!empty) sessionsWithDiff.add(runId)
+    if (!empty) markSessionWithDiff(runId)
   }
 
   const ev: EventIn = {

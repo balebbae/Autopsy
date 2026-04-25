@@ -20,7 +20,7 @@ import { useRunStream } from "@/lib/sse"
 export function RunRefresher({
   runId,
   isLive,
-  pollMs = 4000,
+  pollMs = 10000,
 }: {
   runId: string
   isLive: boolean
