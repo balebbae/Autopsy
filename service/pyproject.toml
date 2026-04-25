@@ -17,6 +17,7 @@ dependencies = [
     "unidiff>=0.7.5",
     "numpy>=2.1",
     "python-ulid>=3.0",
+    "google-generativeai>=0.8.6",
 ]
 
 [dependency-groups]
@@ -34,6 +35,9 @@ ml = [
 ]
 openai = [
     "openai>=1.55",
+]
+gemma = [
+   "google-generativeai>=0.8",
 ]
 
 [build-system]

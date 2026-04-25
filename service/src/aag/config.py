@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Optional API keys
     openai_api_key: str | None = None
 
+    # LLM-assisted classification (Gemma via Google AI Studio)
+    llm_provider: Literal["none", "gemma"] = "none"
+    gemma_model: str = "gemma-3-12b-it"
+    gemini_api_key: str | None = None
+
     # Auth
     aag_token: str = "devtoken"
 
