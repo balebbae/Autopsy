@@ -76,9 +76,12 @@ is mostly stubs. R4 (Dashboard) is ~60% done.
 
 ### R3 — Analyzer & Knowledge Graph (core gaps)
 
-- [ ] **Failure classifier** — `service/src/aag/analyzer/classifier.py` is a stub returning None.
-      Needs to load run+events+diffs, run every rule, merge symptoms, pick highest-confidence failure mode.
-- [ ] **Analyzer rules** — all four rule files are empty:
+- [x] **Failure classifier** — rules-based pipeline: loads run+events+diffs, runs
+      all rules, merges symptoms, picks highest-confidence failure mode. Currently
+      heuristic/regex only — could be upgraded with a small LLM (e.g. Gemma) for
+      deeper semantic classification (understanding *why* a change is incomplete
+      rather than pattern-matching file paths and diff lines).
+- [x] **Analyzer rules** — four deterministic rules implemented:
   - `rules/schema_change.py` — scan diffs for schema field additions
   - `rules/missing_migration.py` — detect missing migration when schema_change fires
   - `rules/missing_test.py` — detect code changes without corresponding test changes
