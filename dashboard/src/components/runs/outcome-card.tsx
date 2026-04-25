@@ -4,15 +4,18 @@ import {
   CheckCircle2,
   CircleSlash,
   MessageSquareWarning,
+  Wand2,
 } from "lucide-react"
 
-import type { Rejection, Run } from "@/lib/api"
+import type { FailureCase, Rejection, Run } from "@/lib/api"
+import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 export function OutcomeCard({ run }: { run: Run }) {
   const rejections = run.rejections ?? []
   const count = rejections.length || run.rejection_count || 0
+  const failure = run.failure_case ?? null
 
   if (run.status === "active") {
     return (
@@ -21,9 +24,7 @@ export function OutcomeCard({ run }: { run: Run }) {
           <div className="inline-flex items-center gap-2 text-sky-700 dark:text-sky-300">
             <span className="h-2 w-2 rounded-full bg-sky-500 animate-pulse" /> In progress
           </div>
-          {count > 0 ? (
-            <RejectionBadge count={count} tone="active" />
-          ) : null}
+          {count > 0 ? <RejectionBadge count={count} tone="active" /> : null}
         </div>
         <p className="text-xs text-muted-foreground">
           Events streaming live from <span className="font-mono">/v1/runs/:id/stream</span>.
@@ -32,6 +33,7 @@ export function OutcomeCard({ run }: { run: Run }) {
             : null}
         </p>
         {rejections.length > 0 ? <RejectionList rejections={rejections} /> : null}
+        {failure ? <FailureSummary failure={failure} /> : null}
       </Card>
     )
   }
@@ -42,20 +44,23 @@ export function OutcomeCard({ run }: { run: Run }) {
           <div className="inline-flex items-center gap-2 text-red-700 dark:text-red-300 font-medium">
             <AlertTriangle className="h-4 w-4" /> Rejected
           </div>
-          {count > 0 ? (
-            <RejectionBadge count={count} tone="rejected" />
-          ) : null}
+          <div className="flex items-center gap-1.5">
+            {failure ? (
+              <Badge
+                variant="outline"
+                className="text-[10px] py-0.5 px-1.5 bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 font-mono"
+              >
+                {failure.failure_mode}
+              </Badge>
+            ) : null}
+            {count > 0 ? <RejectionBadge count={count} tone="rejected" /> : null}
+          </div>
         </div>
-        {rejections.length > 0 ? (
-          <RejectionList rejections={rejections} />
-        ) : run.rejection_reason ? (
-          <p className="text-sm text-foreground/90">
-            <MessageSquareWarning className="inline-block h-3.5 w-3.5 mr-1 -mt-0.5 opacity-70" />
-            {run.rejection_reason}
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">No rejection reason captured.</p>
-        )}
+        <RejectionBody
+          rejections={rejections}
+          rejectionReason={run.rejection_reason}
+          failure={failure}
+        />
       </Card>
     )
   }
@@ -88,7 +93,75 @@ export function OutcomeCard({ run }: { run: Run }) {
         {count > 0 ? <RejectionBadge count={count} tone="aborted" /> : null}
       </div>
       {rejections.length > 0 ? <RejectionList rejections={rejections} /> : null}
+      {failure ? <FailureSummary failure={failure} /> : null}
     </Card>
+  )
+}
+
+function RejectionBody({
+  rejections,
+  rejectionReason,
+  failure,
+}: {
+  rejections: Rejection[]
+  rejectionReason: string | null
+  failure: FailureCase | null
+}) {
+  if (rejections.length > 0) {
+    return (
+      <>
+        <RejectionList rejections={rejections} />
+        {failure?.fix_pattern ? <SuggestedFix text={failure.fix_pattern} /> : null}
+      </>
+    )
+  }
+  // Single-rejection path (legacy outcome=rejected or permission.replied=reject).
+  // Surface whatever signal we have, in priority order:
+  //   1. explicit rejection_reason (set by /outcome with feedback or /feedback)
+  //   2. classifier-generated summary (covers the permission.replied path
+  //      where rejection_reason is never set, plus gemma-enhanced summaries)
+  //   3. nothing — show the empty hint
+  const reason = rejectionReason ?? failure?.summary ?? null
+  if (reason) {
+    return (
+      <>
+        <p className="text-sm text-foreground/90 leading-snug">
+          <MessageSquareWarning className="inline-block h-3.5 w-3.5 mr-1 -mt-0.5 opacity-70" />
+          {reason}
+        </p>
+        {failure?.fix_pattern ? <SuggestedFix text={failure.fix_pattern} /> : null}
+      </>
+    )
+  }
+  return <p className="text-xs text-muted-foreground">No rejection reason captured.</p>
+}
+
+function FailureSummary({ failure }: { failure: FailureCase }) {
+  if (!failure.summary && !failure.fix_pattern) return null
+  return (
+    <div className="space-y-2 border-t border-border/50 pt-3">
+      {failure.summary ? (
+        <p className="text-xs text-foreground/85 leading-snug">
+          <MessageSquareWarning className="inline-block h-3.5 w-3.5 mr-1 -mt-0.5 opacity-70" />
+          {failure.summary}
+        </p>
+      ) : null}
+      {failure.fix_pattern ? <SuggestedFix text={failure.fix_pattern} /> : null}
+    </div>
+  )
+}
+
+function SuggestedFix({ text }: { text: string }) {
+  return (
+    <p className="text-xs text-foreground/80 flex items-start gap-1.5 border-l-2 border-primary/40 pl-2">
+      <Wand2 className="h-3 w-3 mt-0.5 text-primary shrink-0" />
+      <span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">
+          Suggested fix
+        </span>
+        {text}
+      </span>
+    </p>
   )
 }
 
@@ -123,18 +196,14 @@ function RejectionList({ rejections }: { rejections: Rejection[] }) {
             <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/15 px-1 text-[10px] tabular-nums">
               {idx + 1}
             </span>
-            <span className="text-foreground/80">
-              {r.failure_mode ?? "rejection"}
-            </span>
+            <span className="text-foreground/80">{r.failure_mode ?? "rejection"}</span>
             <span className="text-muted-foreground tabular-nums ml-auto">
               {new Date(r.ts).toLocaleTimeString()}
             </span>
           </div>
           <p className="mt-1 text-foreground/90 leading-snug">{r.reason}</p>
           {r.symptoms ? (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-              {r.symptoms}
-            </p>
+            <p className="mt-1 font-mono text-[11px] text-muted-foreground">{r.symptoms}</p>
           ) : null}
         </li>
       ))}
