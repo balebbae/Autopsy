@@ -86,15 +86,19 @@ async def apply_event_side_effects(session: AsyncSession, ev: EventIn) -> None:
 
     elif ev.type == SESSION_DIFF:
         diffs = ev.properties.get("diff") or []
-        if diffs:
-            session.add(
-                Artifact(
-                    run_id=ev.run_id,
-                    kind="diff",
-                    captured_at=ev.ts,
-                    content={"files": diffs},
-                )
+        # Persist *every* session.diff snapshot, including empty ones. opencode
+        # emits cumulative diffs (relative to session start), so an empty
+        # snapshot after a non-empty one means "all prior changes were
+        # reverted". Dropping empties left the dashboard showing stale state.
+        session.add(
+            Artifact(
+                run_id=ev.run_id,
+                kind="diff",
+                captured_at=ev.ts,
+                content={"files": diffs},
             )
+        )
+        if diffs:
             run.files_touched = max(run.files_touched, len(diffs))
 
     elif ev.type == SESSION_IDLE and run.status == "active":

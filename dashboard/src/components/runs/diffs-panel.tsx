@@ -17,24 +17,20 @@ const ReactDiffViewer = dynamic(() => import("react-diff-viewer-continued"), {
 })
 
 export function DiffsPanel({ snapshots }: { snapshots: DiffSnapshot[] }) {
-  // Newest first, then dedup-by-file (last write wins) for the "Latest"
-  // view. Older snapshots are still browsable via the History accordion
-  // below so the user can see how the diff evolved over multiple
-  // session.diff events.
+  // opencode emits cumulative session.diff snapshots (relative to session
+  // start), so the *latest* snapshot is always the source of truth for the
+  // current workspace state. Merging files across snapshots leaks stale
+  // entries (e.g. a file that was created and then reverted would still
+  // show up as "added"). Render only the most recent snapshot's files;
+  // surface older snapshots via the History accordion.
   const ordered = React.useMemo(
     () => [...snapshots].sort((a, b) => (b.captured_at ?? 0) - (a.captured_at ?? 0)),
     [snapshots],
   )
-  const latest = React.useMemo(() => {
-    const seen = new Map<string, DiffFile>()
-    // Iterate oldest -> newest so the newest content for each file wins.
-    for (let i = ordered.length - 1; i >= 0; i--) {
-      ordered[i].files.forEach((f) => seen.set(f.file, f))
-    }
-    return Array.from(seen.values())
-  }, [ordered])
+  const latestSnapshot = ordered[0]
+  const latestFiles = latestSnapshot?.files ?? []
 
-  if (ordered.length === 0 || latest.length === 0) {
+  if (ordered.length === 0) {
     return (
       <SectionCard title="Diffs" description="Per-file changes recorded during the run">
         <EmptyState
@@ -46,17 +42,35 @@ export function DiffsPanel({ snapshots }: { snapshots: DiffSnapshot[] }) {
       </SectionCard>
     )
   }
+
+  const tsLabel = latestSnapshot?.captured_at
+    ? new Date(latestSnapshot.captured_at).toLocaleTimeString()
+    : null
   const desc =
-    ordered.length > 1
-      ? `${latest.length} file${latest.length === 1 ? "" : "s"} changed · ${ordered.length} snapshots`
-      : `${latest.length} file${latest.length === 1 ? "" : "s"} changed`
+    latestFiles.length === 0
+      ? `Workspace clean${tsLabel ? ` · latest snapshot ${tsLabel}` : ""}${ordered.length > 1 ? ` · ${ordered.length} snapshots` : ""}`
+      : `${latestFiles.length} file${latestFiles.length === 1 ? "" : "s"} changed${tsLabel ? ` · latest ${tsLabel}` : ""}${ordered.length > 1 ? ` · ${ordered.length} snapshots` : ""}`
+
   return (
     <SectionCard title="Diffs" description={desc} bodyClassName="p-0">
-      <ul className="divide-y divide-border">
-        {latest.map((f, idx) => (
-          <DiffItem key={f.file} file={f} defaultOpen={idx === 0} />
-        ))}
-      </ul>
+      {latestFiles.length === 0 ? (
+        <EmptyState
+          Icon={FileDiff}
+          title="No changes in latest snapshot"
+          description="All previous changes have been reverted or no edits remain. See History below for prior snapshots."
+          className="py-8"
+        />
+      ) : (
+        <ul className="divide-y divide-border">
+          {latestFiles.map((f, idx) => (
+            <DiffItem
+              key={`${latestSnapshot?.captured_at ?? 0}:${f.file}`}
+              file={f}
+              defaultOpen={idx === 0}
+            />
+          ))}
+        </ul>
+      )}
       {ordered.length > 1 ? <DiffHistory snapshots={ordered} /> : null}
     </SectionCard>
   )

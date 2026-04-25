@@ -289,6 +289,84 @@ async def test_post_events_creates_diff_artifact_from_session_diff() -> None:
         await dispose()
 
 
+async def test_post_events_persists_empty_session_diff() -> None:
+    """Empty ``session.diff`` arrays must still create a kind='diff' artifact.
+
+    opencode emits cumulative session.diff snapshots; an empty array after a
+    non-empty one means "all prior changes were reverted". If we drop the
+    empty snapshot, the dashboard's latest-snapshot view stays stuck on the
+    last non-empty diff and looks like edits never went away.
+    """
+    run_id = f"test-events-{uuid4().hex[:8]}"
+    t0 = int(time() * 1000)
+    t1 = t0 + 50
+    t2 = t1 + 50
+
+    diff_files = [
+        {
+            "file": "meow.html",
+            "status": "added",
+            "additions": 1,
+            "deletions": 0,
+            "patch": "@@ +1 @@\n+meow\n",
+        }
+    ]
+    body = {
+        "events": [
+            {
+                "event_id": f"{run_id}-evt-001",
+                "run_id": run_id,
+                "ts": t0,
+                "type": "session.created",
+                "properties": {
+                    "sessionID": run_id,
+                    "info": {"id": run_id, "title": "revert", "directory": "/tmp/x"},
+                },
+            },
+            {
+                "event_id": f"{run_id}-evt-002",
+                "run_id": run_id,
+                "ts": t1,
+                "type": "session.diff",
+                "properties": {"sessionID": run_id, "diff": diff_files},
+            },
+            {
+                "event_id": f"{run_id}-evt-003",
+                "run_id": run_id,
+                "ts": t2,
+                "type": "session.diff",
+                "properties": {"sessionID": run_id, "diff": []},
+            },
+        ]
+    }
+
+    try:
+        async with _async_client() as ac:
+            resp = await ac.post("/v1/events", json=body)
+        assert resp.status_code == 202
+
+        sm = sessionmaker()
+        async with sm() as session:
+            arts = (
+                (
+                    await session.execute(
+                        select(Artifact)
+                        .where(Artifact.run_id == run_id)
+                        .where(Artifact.kind == "diff")
+                        .order_by(Artifact.captured_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(arts) == 2
+            assert arts[0].content == {"files": diff_files}
+            assert arts[1].content == {"files": []}
+    finally:
+        await _delete_run(run_id)
+        await dispose()
+
+
 async def test_post_events_empty_batch() -> None:
     async with _async_client() as ac:
         resp = await ac.post("/v1/events", json={"events": []})

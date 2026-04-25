@@ -22,6 +22,12 @@ const isEmptyDiff = (props: Record<string, unknown>) => {
   return false
 }
 
+// Per-session flag: whether we've already seen a non-empty diff. We use this
+// to suppress *initial* empty diffs (before any change has been made) but
+// allow empty diffs *after* a non-empty one through, because that signals
+// the user reverted all prior changes — which the dashboard needs to show.
+const sessionsWithDiff = new Set<string>()
+
 // Words / phrases that strongly signal the user is unhappy with the
 // agent's last action. Kept intentionally aggressive — we only fire once
 // per session so false positives are bounded.
@@ -152,7 +158,11 @@ export const onEvent = async (
     return
   }
 
-  if (e.type === "session.diff" && isEmptyDiff(e.properties ?? {})) return
+  if (e.type === "session.diff") {
+    const empty = isEmptyDiff(e.properties ?? {})
+    if (empty && !sessionsWithDiff.has(runId)) return
+    if (!empty) sessionsWithDiff.add(runId)
+  }
 
   const ev: EventIn = {
     run_id: runId,

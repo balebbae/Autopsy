@@ -28,23 +28,16 @@ NOISY_TYPES = frozenset(
 )
 
 
-def _is_empty_diff(ev_type: str, properties: dict) -> bool:
-    if ev_type != "session.diff":
-        return False
-    diff = properties.get("diff")
-    if diff is None:
-        return True
-    return isinstance(diff, list) and len(diff) == 0
-
-
 @router.post("/events", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(batch: EventBatch, session: SessionDep) -> dict[str, int]:
     accepted = 0
     for ev in batch.events:
         if ev.type in NOISY_TYPES:
             continue
-        if _is_empty_diff(ev.type, ev.properties):
-            continue
+        # Empty session.diff snapshots (cumulative-from-session-start = no
+        # net changes) used to be filtered here. They're now persisted
+        # because they encode the "everything was reverted" signal that
+        # the dashboard's latest-snapshot view depends on.
         await assembler.upsert_run(session, ev)
         is_new = await assembler.insert_event(session, ev)
         if not is_new:
