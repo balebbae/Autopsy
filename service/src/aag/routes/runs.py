@@ -149,9 +149,9 @@ async def post_outcome(run_id: str, body: OutcomeIn, session: SessionDep) -> Non
         run.ended_at = int(time() * 1000)
     await session.commit()
 
-    # R3: hook the finalizer here.
-    # from aag.workers.finalizer import on_run_complete
-    # await on_run_complete(run_id)
+    from aag.workers.finalizer import on_run_complete
+
+    await on_run_complete(run_id)
 
 
 @router.post("/runs/{run_id}/feedback", status_code=status.HTTP_204_NO_CONTENT)

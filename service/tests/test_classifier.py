@@ -2,11 +2,11 @@
 
 from aag.analyzer.classifier import (
     RunContext,
-    _extract_components,
     _infer_task_type,
     _inline_diff,
     _pick_failure_mode,
 )
+from aag.analyzer.extractor import extract_components
 from aag.analyzer.rules import (
     ALL_RULES,
     frontend_drift,
@@ -112,11 +112,11 @@ class TestClassifierHelpers:
 
     def test_extract_components(self):
         files = ["src/profile/profile.service.ts", "src/profile/user.serializer.ts"]
-        assert _extract_components(files) == ["profile"]
+        assert extract_components(files) == ["profile"]
 
     def test_extract_components_multiple(self):
         files = ["src/profile/a.ts", "src/auth/b.ts"]
-        assert _extract_components(files) == ["profile", "auth"]
+        assert extract_components(files) == ["profile", "auth"]
 
     def test_infer_task_type_feature(self):
         assert _infer_task_type("Add preferredName to user profile") == "feature_addition"
@@ -151,5 +151,5 @@ class TestAllRulesOnFixture:
         mode = _pick_failure_mode(symptoms)
         assert mode == "incomplete_schema_change"
 
-        components = _extract_components(ctx.files)
+        components = extract_components(ctx.files)
         assert "profile" in components

@@ -7,12 +7,12 @@ a FailureCaseOut (or None if no symptoms fire).
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aag.analyzer.extractor import extract_components
 from aag.ingestion.assembler import list_run_artifacts, list_run_events
 from aag.models import Run
 from aag.schemas.runs import FailureCaseOut, Symptom
@@ -29,8 +29,6 @@ MODE_TO_FIX: dict[str, str] = {
     "missing_test_coverage": "Add or update tests covering the changed code paths",
     "frontend_backend_drift": "Regenerate frontend types after backend type changes",
 }
-
-COMPONENT_SEGMENT_INDEX = 1
 
 
 @dataclass
@@ -64,7 +62,7 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
 
     failure_mode = _pick_failure_mode(symptoms)
     change_patterns = [s.name for s in symptoms]
-    components = _extract_components(ctx.files)
+    components = extract_components(ctx.files)
     fix_pattern = MODE_TO_FIX.get(failure_mode)
     summary = ctx.rejection_reason or ", ".join(s.name for s in symptoms)
 
@@ -135,19 +133,6 @@ def _pick_failure_mode(symptoms: list[Symptom]) -> str:
         mode = SYMPTOM_TO_MODE.get(s.name, s.name)
         mode_confidence[mode] += s.confidence
     return max(mode_confidence, key=lambda m: mode_confidence[m])
-
-
-def _extract_components(files: list[str]) -> list[str]:
-    seen: set[str] = set()
-    components: list[str] = []
-    for path in files:
-        parts = re.split(r"[/\\]", path)
-        if len(parts) > COMPONENT_SEGMENT_INDEX:
-            comp = parts[COMPONENT_SEGMENT_INDEX]
-            if comp not in seen:
-                seen.add(comp)
-                components.append(comp)
-    return components
 
 
 def _infer_task_type(task: str | None) -> str | None:
