@@ -121,11 +121,7 @@ export function RunTimeline({
           No events recorded.
         </div>
       ) : (
-        <ol className="relative px-5 pt-2 pb-4">
-          <span
-            aria-hidden="true"
-            className="absolute left-[31px] top-3 bottom-3 w-px bg-border"
-          />
+        <ol className="relative px-3 pt-2 pb-4">
           <AnimatePresence initial={false}>
             {merged.map(({ event: e, repeat, lastTs }, idx) => {
               const key = e.event_id ?? `${e.ts}:${e.type}:${idx}`
@@ -218,15 +214,15 @@ function TimelineRow({
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
       className={cn(
-        "relative pl-12 pr-2",
-        severity === "muted" ? "py-1" : "py-2.5",
+        "relative pr-2",
+        severity === "muted" ? "py-1" : "py-1",
       )}
     >
       <button
         type="button"
         onClick={onClick}
         className={cn(
-          "group w-full flex items-start gap-3 rounded-md px-2 py-2 -mx-2 text-left transition-colors hover:bg-accent/60 cursor-pointer",
+          "group relative w-full flex items-start gap-4 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent/60 cursor-pointer",
           severity === "rejection" &&
             "ring-1 ring-red-500/40 bg-red-500/5",
           flashing &&
@@ -237,13 +233,13 @@ function TimelineRow({
       >
         <span
           className={cn(
-            "absolute left-5 top-3.5 grid h-7 w-7 place-items-center rounded-full bg-card border border-border",
-            severity === "muted" && "h-5 w-5 left-6 top-2.5",
+            "z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-card border border-border",
+            severity === "muted" && "h-5 w-5",
           )}
         >
           <EventIcon type={event.type} />
         </span>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pt-0.5">
           <div className="flex items-baseline justify-between gap-2">
             <span className={cn("text-sm font-medium truncate flex items-center gap-1.5", severity === "muted" && "text-xs font-normal text-muted-foreground")}>
               {label}
