@@ -17,13 +17,24 @@ const ReactDiffViewer = dynamic(() => import("react-diff-viewer-continued"), {
 })
 
 export function DiffsPanel({ snapshots }: { snapshots: DiffSnapshot[] }) {
-  const flat = React.useMemo(() => {
+  // Newest first, then dedup-by-file (last write wins) for the "Latest"
+  // view. Older snapshots are still browsable via the History accordion
+  // below so the user can see how the diff evolved over multiple
+  // session.diff events.
+  const ordered = React.useMemo(
+    () => [...snapshots].sort((a, b) => (b.captured_at ?? 0) - (a.captured_at ?? 0)),
+    [snapshots],
+  )
+  const latest = React.useMemo(() => {
     const seen = new Map<string, DiffFile>()
-    snapshots.forEach((s) => s.files.forEach((f) => seen.set(f.file, f)))
+    // Iterate oldest -> newest so the newest content for each file wins.
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      ordered[i].files.forEach((f) => seen.set(f.file, f))
+    }
     return Array.from(seen.values())
-  }, [snapshots])
+  }, [ordered])
 
-  if (flat.length === 0) {
+  if (ordered.length === 0 || latest.length === 0) {
     return (
       <SectionCard title="Diffs" description="Per-file changes recorded during the run">
         <EmptyState
@@ -35,18 +46,76 @@ export function DiffsPanel({ snapshots }: { snapshots: DiffSnapshot[] }) {
       </SectionCard>
     )
   }
+  const desc =
+    ordered.length > 1
+      ? `${latest.length} file${latest.length === 1 ? "" : "s"} changed · ${ordered.length} snapshots`
+      : `${latest.length} file${latest.length === 1 ? "" : "s"} changed`
   return (
-    <SectionCard
-      title="Diffs"
-      description={`${flat.length} file${flat.length === 1 ? "" : "s"} changed`}
-      bodyClassName="p-0"
-    >
+    <SectionCard title="Diffs" description={desc} bodyClassName="p-0">
       <ul className="divide-y divide-border">
-        {flat.map((f, idx) => (
+        {latest.map((f, idx) => (
           <DiffItem key={f.file} file={f} defaultOpen={idx === 0} />
         ))}
       </ul>
+      {ordered.length > 1 ? <DiffHistory snapshots={ordered} /> : null}
     </SectionCard>
+  )
+}
+
+function DiffHistory({ snapshots }: { snapshots: DiffSnapshot[] }) {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <div className="border-t border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-5 py-2 text-xs text-muted-foreground hover:bg-accent/40"
+      >
+        <span>
+          History · {snapshots.length} snapshot{snapshots.length === 1 ? "" : "s"}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      {open ? (
+        <ul className="divide-y divide-border bg-muted/20">
+          {snapshots.map((s, i) => (
+            <li key={`${s.captured_at}-${i}`} className="px-5 py-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                <span className="font-mono">
+                  {s.captured_at
+                    ? new Date(s.captured_at).toLocaleTimeString()
+                    : `Snapshot ${snapshots.length - i}`}
+                </span>
+                <span className="tabular-nums">
+                  {s.files.length} file{s.files.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <ul className="mt-1 space-y-0.5">
+                {s.files.map((f) => (
+                  <li
+                    key={f.file}
+                    className="flex items-center gap-2 font-mono text-[11px]"
+                  >
+                    <span className="truncate">{f.file}</span>
+                    {typeof f.additions === "number" ? (
+                      <span className="text-emerald-500">+{f.additions}</span>
+                    ) : null}
+                    {typeof f.deletions === "number" ? (
+                      <span className="text-red-500">-{f.deletions}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   )
 }
 

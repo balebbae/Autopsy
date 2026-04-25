@@ -30,6 +30,7 @@ const eventLabel: Record<string, string> = {
   "permission.asked": "Permission asked",
   "permission.replied": "Permission replied",
   "message.part.updated": "Message updated",
+  "chat.message": "Message",
 }
 
 export function RunTimeline({
@@ -57,7 +58,31 @@ export function RunTimeline({
       seen.add(key)
       all.push(e)
     }
-    return all.sort((a, b) => a.ts - b.ts)
+    // Drop session.idle entirely — it's just a "no activity right now" ping
+    // and produces a row between every turn. The classifier still sees it
+    // via run_events; this is just a render-side filter.
+    const filtered = all.filter((e) => e.type !== "session.idle")
+    filtered.sort((a, b) => a.ts - b.ts)
+
+    // Collapse runs of consecutive identical events (same type + identical
+    // signature) into a single row tagged with the repeat count. Common
+    // case: multiple session.diff fired in quick succession with the same
+    // file list.
+    const collapsed: { event: Mergeable; repeat: number; lastTs: number }[] = []
+    for (const e of filtered) {
+      const prev = collapsed[collapsed.length - 1]
+      if (
+        prev &&
+        prev.event.type === e.type &&
+        eventSignature(prev.event) === eventSignature(e)
+      ) {
+        prev.repeat += 1
+        prev.lastTs = e.ts
+        continue
+      }
+      collapsed.push({ event: e, repeat: 1, lastTs: e.ts })
+    }
+    return collapsed
   }, [initial, streamed])
 
   const [selected, setSelected] = React.useState<Mergeable | null>(null)
@@ -102,7 +127,7 @@ export function RunTimeline({
             className="absolute left-[31px] top-3 bottom-3 w-px bg-border"
           />
           <AnimatePresence initial={false}>
-            {merged.map((e, idx) => {
+            {merged.map(({ event: e, repeat, lastTs }, idx) => {
               const key = e.event_id ?? `${e.ts}:${e.type}:${idx}`
               const isNew = !initialKeys.current.has(
                 e.event_id ?? `${e.ts}:${e.type}`,
@@ -112,6 +137,8 @@ export function RunTimeline({
                   key={key}
                   event={e}
                   isNew={isNew}
+                  repeat={repeat}
+                  lastTs={lastTs}
                   onClick={() => setSelected(e)}
                 />
               )
@@ -157,10 +184,14 @@ export function RunTimeline({
 function TimelineRow({
   event,
   isNew,
+  repeat = 1,
+  lastTs,
   onClick,
 }: {
   event: Mergeable
   isNew: boolean
+  repeat?: number
+  lastTs?: number
   onClick: () => void
 }) {
   const summary = summariseEvent(event)
@@ -214,11 +245,22 @@ function TimelineRow({
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
-            <span className={cn("text-sm font-medium truncate", severity === "muted" && "text-xs font-normal text-muted-foreground")}>
+            <span className={cn("text-sm font-medium truncate flex items-center gap-1.5", severity === "muted" && "text-xs font-normal text-muted-foreground")}>
               {label}
+              {repeat > 1 ? (
+                <span className="inline-flex items-center rounded-full border border-border bg-muted/60 px-1.5 py-0 text-[10px] font-mono text-muted-foreground tabular-nums">
+                  ×{repeat}
+                </span>
+              ) : null}
             </span>
             <span className="text-[11px] font-mono text-muted-foreground tabular-nums shrink-0">
               {new Date(event.ts).toLocaleTimeString()}
+              {repeat > 1 && lastTs && lastTs !== event.ts ? (
+                <span className="opacity-60">
+                  {" → "}
+                  {new Date(lastTs).toLocaleTimeString()}
+                </span>
+              ) : null}
             </span>
           </div>
           {summary ? (
@@ -247,21 +289,24 @@ function severityForEvent(e: Mergeable): Severity {
   ) {
     return "rejection"
   }
-  if (e.type === "session.idle") return "muted"
   return "default"
 }
 
 function labelForEvent(e: Mergeable): string {
   // Dynamic labels that depend on payload — fall back to the static
   // `eventLabel` map otherwise.
+  if (e.type === "chat.message") {
+    const role = (e.properties as { role?: string } | undefined)?.role
+    return role === "assistant" ? "Assistant" : "User"
+  }
   if (e.type === "message.part.updated") {
     const part = (e.properties as { part?: { type?: string } } | undefined)?.part
-    if (part?.type === "text") return "User message"
+    if (part?.type === "text") return "User"
   }
-  if (e.type === "message.created") {
+  if (e.type === "message.created" || e.type === "message.updated") {
     const role = pickRole(e.properties)
-    if (role === "user") return "User message"
-    if (role === "assistant") return "Assistant message"
+    if (role === "user") return "User"
+    if (role === "assistant") return "Assistant"
   }
   if (
     e.type === "permission.replied" &&
@@ -269,8 +314,34 @@ function labelForEvent(e: Mergeable): string {
   ) {
     return "Permission rejected"
   }
-  if (e.type === "session.idle") return "Session paused"
+  if (e.type === "tool.execute.after") {
+    const tool = (e.properties as { tool?: string } | undefined)?.tool
+    return tool ? `Agent ran ${tool}` : "Tool finished"
+  }
   return eventLabel[e.type] ?? e.type
+}
+
+// Used to detect consecutive duplicate events worth collapsing. Two
+// rows with the same signature render identically, so visually merging
+// them into one with a ×N badge is lossless.
+function eventSignature(e: Mergeable): string {
+  const p = e.properties as Record<string, unknown>
+  switch (e.type) {
+    case "session.diff": {
+      const diffs = (p.diff as Array<{ file?: string }>) ?? []
+      return diffs.map((d) => d.file ?? "").join("|")
+    }
+    case "tool.execute.after": {
+      const tool = p.tool as string | undefined
+      const args = p.args as { filePath?: string; path?: string } | undefined
+      const file = args?.filePath ?? args?.path ?? ""
+      return `${tool ?? ""}::${file}`
+    }
+    case "permission.asked":
+      return (p.permission as string | undefined) ?? ""
+    default:
+      return e.type
+  }
 }
 
 function pickRole(props: Record<string, unknown>): string | null {
@@ -288,6 +359,10 @@ function summariseEvent(e: Mergeable): string | null {
       const info = (p.info as Record<string, unknown> | undefined) ?? {}
       const title = info.title as string | undefined
       return title ? `“${title}”` : null
+    }
+    case "chat.message": {
+      const text = p.text as string | undefined
+      return text ? truncateForRow(text) : null
     }
     case "message.part.updated": {
       const part = p.part as

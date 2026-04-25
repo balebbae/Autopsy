@@ -1,4 +1,4 @@
-import { enqueue } from "../batcher.ts"
+import { enqueue, flush } from "../batcher.ts"
 import { postFeedback, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
@@ -22,8 +22,11 @@ const isEmptyDiff = (props: Record<string, unknown>) => {
   return false
 }
 
+// Words / phrases that strongly signal the user is unhappy with the
+// agent's last action. Kept intentionally aggressive — we only fire once
+// per session so false positives are bounded.
 const FRUSTRATION_RE =
-  /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said))\b/i
+  /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said)|that('?s| is)\s+(bad|wrong|broken|not\s+right|incorrect)|wh(y|at the hell|at the heck)\s+(did|are|is|would)\s+you|you\s+(broke|messed\s+up|ruined|fucked\s+up|screwed\s+up)|undo\s+(this|that|it)|revert\s+(this|that|it)|don'?t\s+do\s+that|do\s+not\s+do\s+that|stop\s+(it|that)|never\s+(do|did)\s+that|that('?s| is)\s+not\s+what|hate\s+(this|that|it))\b/i
 
 // Track sessions where we already fired a frustration rejection so we don't spam.
 const firedSessions = new Set<string>()
@@ -47,11 +50,26 @@ export const onEvent = async (
   // --- Side-effects that must run BEFORE the noise filter ---
 
   if (e.type === "permission.replied" && props.reply === "reject") {
+    // Persist the raw event *first* so the dashboard's timeline shows the
+    // "Permission rejected" row immediately. If we POST the rejection
+    // before flushing, the rejection record + classifier output land
+    // before the underlying event row exists, and the SSE-driven UI looks
+    // like nothing happened until the next refresh.
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: e.type,
+      properties: e.properties,
+    })
+    await flush()
     await postRejection(runId, {
       reason: props.feedback || "User denied a permission request.",
       failure_mode: "user_permission_denied",
     })
     if (props.feedback) await postFeedback(runId, props.feedback as string)
+    return // already enqueued; don't double-record below
   }
 
   // Auto-detect frustrated user messages and file a rejection.
@@ -67,6 +85,17 @@ export const onEvent = async (
   ) {
     firedSessions.add(runId)
     const snippet = props.part.text.slice(0, 300)
+    // Same ordering: enqueue + flush before rejection POST so the user
+    // message row exists when the dashboard refreshes.
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: "chat.message",
+      properties: { sessionID: runId, role: "user", text: snippet },
+    })
+    await flush()
     await postRejection(runId, {
       reason: snippet,
       failure_mode: "frustrated_user",
@@ -84,7 +113,42 @@ export const onEvent = async (
       props.part?.text?.trim() &&
       !("time" in (props.part ?? {}))
     if (!isUserText) return
+
+    // Normalize into a single, clean `chat.message` event so the timeline
+    // can render it as "User: ..." without sniffing nested shapes.
+    const text = props.part!.text!.trim()
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: "chat.message",
+      properties: { sessionID: runId, role: "user", text },
+    })
+    if (text) setLatestUserMessage(text)
+    return
   } else if (NOISY_TYPES.has(e.type)) {
+    return
+  }
+
+  // `message.created` carries the canonical role+content for both user
+  // and assistant turns when opencode emits it. Normalize it to the same
+  // `chat.message` event shape so the timeline has one renderer for both.
+  if (e.type === "message.created") {
+    const norm = normalizeMessageEvent(runId, e.properties ?? {})
+    if (norm) {
+      enqueue({
+        run_id: runId,
+        project: ctx.project?.id,
+        worktree: ctx.worktree,
+        ts: Date.now(),
+        type: "chat.message",
+        properties: norm,
+      })
+      if (norm.role === "user" && typeof norm.text === "string") {
+        setLatestUserMessage(norm.text)
+      }
+    }
     return
   }
 
@@ -160,6 +224,34 @@ function extractUserText(type: string, props: Record<string, unknown>): string |
     }
   }
 
+  return null
+}
+
+// Same shape coverage as `extractUserText` but emits a normalized
+// `chat.message` payload regardless of role. Returns null when we can't
+// confidently identify a role + non-empty text.
+function normalizeMessageEvent(
+  runId: string,
+  props: Record<string, unknown>,
+): { sessionID: string; role: "user" | "assistant"; text: string } | null {
+  const flatRole = asString(props["role"])
+  const flatText =
+    firstString(props["content"], props["text"]) ?? textFromParts(props["parts"])
+  if (flatRole && flatText) {
+    const role = flatRole === "user" ? "user" : "assistant"
+    return { sessionID: runId, role, text: flatText.trim() }
+  }
+  const inner = asRecord(props["message"])
+  if (inner) {
+    const role = asString(inner["role"])
+    const text =
+      firstString(inner["content"], inner["text"]) ??
+      textFromParts(inner["parts"])
+    if (role && text) {
+      const r = role === "user" ? "user" : "assistant"
+      return { sessionID: runId, role: r, text: text.trim() }
+    }
+  }
   return null
 }
 
