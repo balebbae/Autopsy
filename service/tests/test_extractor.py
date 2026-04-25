@@ -157,3 +157,166 @@ class TestExtract:
         )
         result = extract(ctx, None)
         assert result.errors == []
+
+
+class TestNewToolOutputShape:
+    """opencode 1.x via plugin/src/handlers/tool-after.ts — {ok, error, ...}."""
+
+    def test_error_from_ok_false(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason=None,
+            events=[
+                {
+                    "type": "tool.execute.after",
+                    "ts": 1,
+                    "properties": {
+                        "tool": "bash",
+                        "args": {"command": "pytest -q"},
+                        "result": {
+                            "ok": False,
+                            "error": "AssertionError: expected 1 == 2",
+                            "output_preview": "test failed",
+                            "metadata": {"exit": 1},
+                        },
+                    },
+                },
+            ],
+        )
+        result = extract(ctx, None)
+        assert result.errors == ["AssertionError: expected 1 == 2"]
+
+    def test_error_falls_back_to_output_preview(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason=None,
+            events=[
+                {
+                    "type": "tool.execute.after",
+                    "ts": 1,
+                    "properties": {
+                        "tool": "bash",
+                        "result": {
+                            "ok": False,
+                            "error": None,
+                            "output_preview": "Error: something exploded\nstack trace\n",
+                        },
+                    },
+                },
+            ],
+        )
+        result = extract(ctx, None)
+        assert result.errors == ["Error: something exploded"]
+
+    def test_ok_true_yields_no_errors(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="approved",
+            rejection_reason=None,
+            events=[
+                {
+                    "type": "tool.execute.after",
+                    "ts": 1,
+                    "properties": {
+                        "tool": "read",
+                        "result": {"ok": True, "error": None, "output_preview": "..."},
+                    },
+                },
+            ],
+        )
+        result = extract(ctx, None)
+        assert result.errors == []
+
+
+class TestToolUsage:
+    def test_counts_and_failures(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason=None,
+            events=[
+                {
+                    "type": "tool.execute.after",
+                    "ts": 1,
+                    "properties": {
+                        "tool": "bash",
+                        "args": {"command": "pytest -q"},
+                        "result": {"ok": False, "error": "boom"},
+                    },
+                },
+                {
+                    "type": "tool.execute.after",
+                    "ts": 2,
+                    "properties": {
+                        "tool": "bash",
+                        "args": {"command": "ls"},
+                        "result": {"ok": True},
+                    },
+                },
+                {
+                    "type": "tool.execute.after",
+                    "ts": 3,
+                    "properties": {
+                        "tool": "edit",
+                        "args": {"filePath": "src/foo.py"},
+                        "result": {"ok": True},
+                    },
+                },
+            ],
+        )
+        result = extract(ctx, None)
+        assert result.tool_usage["bash"]["count"] == 2
+        assert result.tool_usage["bash"]["failures"] == 1
+        assert "pytest -q" in result.tool_usage["bash"]["examples"]
+        assert "ls" in result.tool_usage["bash"]["examples"]
+        assert result.tool_usage["edit"]["count"] == 1
+        assert result.tool_usage["edit"]["failures"] == 0
+        assert result.tool_usage["edit"]["examples"] == ["src/foo.py"]
+
+    def test_examples_dedup_and_cap(self):
+        events = [
+            {
+                "type": "tool.execute.after",
+                "ts": i,
+                "properties": {
+                    "tool": "grep",
+                    "args": {"pattern": f"pat{i % 3}"},
+                    "result": {"ok": True},
+                },
+            }
+            for i in range(20)
+        ]
+        ctx = RunContext(
+            run_id="r1", task=None, status="approved", rejection_reason=None, events=events
+        )
+        result = extract(ctx, None)
+        examples = result.tool_usage["grep"]["examples"]
+        assert len(examples) == 3
+        assert examples == ["pat0", "pat1", "pat2"]
+
+    def test_legacy_failure_shape_still_counts(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="rejected",
+            rejection_reason=None,
+            events=[
+                {
+                    "type": "tool.execute.after",
+                    "ts": 1,
+                    "properties": {
+                        "tool": "bash",
+                        "args": {"command": "npm test"},
+                        "result": {"exitCode": 1, "stderr": "fail"},
+                    },
+                },
+            ],
+        )
+        result = extract(ctx, None)
+        assert result.tool_usage["bash"]["failures"] == 1
