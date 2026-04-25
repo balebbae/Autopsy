@@ -36,13 +36,13 @@ const Autopsy = async (ctx: {
     event: (input: { event: { type: string; properties: Record<string, unknown> } }) =>
       onEvent(input, ctx),
 
-    "tool.execute.before": (input: any, output: any) => onToolBefore(input, output),
+    "tool.execute.before": (input: any, output: any) => onToolBefore(input, output, ctx),
     "tool.execute.after": (input: any, output: any) => onToolAfter(input, output),
 
     "permission.ask": (input: any, output: any) => onPermissionAsk(input, output),
 
     "experimental.chat.system.transform": (input: any, output: any) =>
-      onSystemTransform(input, output),
+      onSystemTransform(input, output, ctx),
 
     ...(rejectionTool ? { tool: { autopsy_register_rejection: rejectionTool } } : {}),
   }

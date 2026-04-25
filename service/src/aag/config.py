@@ -1,9 +1,16 @@
 """Environment-driven settings for the AAG service."""
 
+import logging
+import sys
 from functools import lru_cache
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Vector dim per provider. The embeddings.vector column is sized from this at
+# table-creation time, so flipping providers without `make embed-reset` will
+# fail at insert. db.verify_vector_dim() catches the mismatch at startup.
+PROVIDER_DIM: dict[str, int] = {"stub": 384, "local": 384, "openai": 1536}
 
 
 class Settings(BaseSettings):
@@ -21,10 +28,9 @@ class Settings(BaseSettings):
     # Postgres (asyncpg URL — note the "+asyncpg" driver hint)
     database_url: str = "postgresql+asyncpg://aag:aag@localhost:5432/aag"
 
-    # Embeddings
+    # Embeddings. Dim is derived from provider via the property below.
     embed_provider: Literal["stub", "local", "openai"] = "stub"
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embed_dim: int = 384
 
     # Optional API keys
     openai_api_key: str | None = None
@@ -37,7 +43,42 @@ class Settings(BaseSettings):
     # Auth
     aag_token: str = "devtoken"
 
+    # Preflight retrieval tuning
+    preflight_half_life_days: float = 30.0
+    preflight_counter_weight: float = 0.5
+
+    # Preflight synthesis (Phase 3): if enabled, run a fast LLM call to turn
+    # the retrieved subgraph into a 2-3 sentence prose addendum. Falls back
+    # to the deterministic template on timeout / API failure / no key.
+    # Requires ``LLM_PROVIDER=gemma`` + ``GEMINI_API_KEY``.
+    preflight_llm_enabled: bool = False
+    preflight_llm_timeout_ms: int = 800
+
+    # Preflight blocking (Phase 3): if set, ``tool.execute.before`` is
+    # allowed to abort the tool when the top FailureMode score (after
+    # dampening) exceeds this threshold. Default ``None`` = warnings only,
+    # which matches the current safe default. Production opt-in.
+    preflight_block_threshold: float | None = None
+
+    # In-process TTL cache for preflight responses (project + task hash).
+    # 5 minutes is short enough to pick up new graph data quickly while
+    # absorbing the duplicate calls a single chat turn often makes
+    # (system.transform + tool.execute.before).
+    preflight_cache_ttl_s: int = 300
+
+    @property
+    def embed_dim(self) -> int:
+        return PROVIDER_DIM[self.embed_provider]
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    # Loud warning when stub is in use outside a test session — stub vectors
+    # are sha256-derived noise, so retrieval only matches exact strings.
+    if settings.embed_provider == "stub" and "pytest" not in sys.modules:
+        logging.getLogger(__name__).warning(
+            "EMBED_PROVIDER=stub: retrieval will only match exact strings. "
+            "Set EMBED_PROVIDER=local for semantic similarity."
+        )
+    return settings

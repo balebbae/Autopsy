@@ -72,7 +72,9 @@ async def _cleanup_runs(run_ids: list[str]) -> None:
     sm = sessionmaker()
     async with sm() as session:
         for rid in run_ids:
-            await session.execute(delete(Embedding).where(Embedding.entity_id == rid))
+            await session.execute(
+                delete(Embedding).where(Embedding.entity_id.like(f"{rid}%"))
+            )
             await session.execute(delete(FailureCase).where(FailureCase.run_id == rid))
             await session.execute(delete(GraphNode).where(GraphNode.id == f"Run:{rid}"))
             await session.execute(delete(Run).where(Run.run_id == rid))
