@@ -2,84 +2,24 @@
 
 import * as React from "react"
 import dynamic from "next/dynamic"
-import cytoscape, { type Core, type ElementDefinition } from "cytoscape"
-import coseBilkent from "cytoscape-cose-bilkent"
-import fcose from "cytoscape-fcose"
+import * as THREE from "three"
 
 import type { GraphEdge, GraphNode } from "@/lib/api"
-import { NODE_TYPE_STYLE } from "./graph-style"
+import { nodeStyle } from "./graph-style"
+import type { ForceGraphMethods } from "react-force-graph-3d"
 
-const CytoscapeComponent = dynamic(() => import("react-cytoscapejs"), { ssr: false })
+const ForceGraph3D = dynamic(
+  () => import("react-force-graph-3d").then((m) => m.default),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full min-h-[320px] rounded-lg bg-[#050816] animate-pulse" />
+    ),
+  },
+)
 
-if (typeof window !== "undefined") {
-  // Cytoscape extensions are idempotent on re-register, but still wrap in try.
-  try {
-    cytoscape.use(coseBilkent as never)
-  } catch {
-    /* already registered */
-  }
-  try {
-    cytoscape.use(fcose as never)
-  } catch {
-    /* already registered */
-  }
-}
-
+/** Preserved keys from the Cytoscape era — now mapped to 3D force / DAG modes. */
 export type LayoutKey = "fcose" | "cose-bilkent" | "breadthfirst" | "circle" | "grid"
-
-const LAYOUT_OPTIONS: Record<LayoutKey, Record<string, unknown>> = {
-  fcose: {
-    name: "fcose",
-    animate: true,
-    animationDuration: 600,
-    randomize: true,
-    fit: true,
-    padding: 60,
-    nodeRepulsion: 6500,
-    idealEdgeLength: 90,
-    edgeElasticity: 0.45,
-    gravity: 0.25,
-    numIter: 2500,
-    tile: true,
-  },
-  "cose-bilkent": {
-    name: "cose-bilkent",
-    animate: "end",
-    animationDuration: 600,
-    fit: true,
-    padding: 60,
-    nodeRepulsion: 9000,
-    idealEdgeLength: 120,
-    edgeElasticity: 0.45,
-    nestingFactor: 0.1,
-    gravity: 0.25,
-    numIter: 2500,
-    tile: true,
-  },
-  breadthfirst: {
-    name: "breadthfirst",
-    animate: true,
-    animationDuration: 500,
-    fit: true,
-    padding: 50,
-    spacingFactor: 1.2,
-    directed: true,
-  },
-  circle: {
-    name: "circle",
-    animate: true,
-    animationDuration: 500,
-    fit: true,
-    padding: 50,
-  },
-  grid: {
-    name: "grid",
-    animate: true,
-    animationDuration: 500,
-    fit: true,
-    padding: 30,
-  },
-}
 
 export const ALL_LAYOUTS: LayoutKey[] = [
   "fcose",
@@ -89,76 +29,55 @@ export const ALL_LAYOUTS: LayoutKey[] = [
   "grid",
 ]
 
-const NODE_STYLE_RULES = Object.entries(NODE_TYPE_STYLE).map(([type, v]) => ({
-  selector: `node[type="${type}"]`,
-  style: {
-    "background-color": v.color,
-    shape: v.shape,
-    "text-outline-color": "#020617",
-    "text-outline-width": 2,
-    color: "#f8fafc",
-  } as Record<string, unknown>,
-}))
+export const LAYOUT_LABELS: Record<LayoutKey, string> = {
+  fcose: "Force 3D",
+  "cose-bilkent": "Force (spread)",
+  breadthfirst: "Tree (top-down)",
+  circle: "Radial tree",
+  grid: "Hierarchy (LR)",
+}
 
-const STYLESHEET: cytoscape.Stylesheet[] = [
-  {
-    selector: "node",
-    style: {
-      label: "data(label)",
-      "text-valign": "center",
-      "text-halign": "center",
-      "font-size": 11,
-      "font-family": "var(--font-geist-sans), Inter, sans-serif",
-      "font-weight": 500,
-      "text-wrap": "wrap",
-      "text-max-width": "120px",
-      width: "label",
-      height: "label",
-      padding: "10px",
-      "border-width": 1,
-      "border-color": "rgba(255,255,255,0.18)",
-      color: "#f8fafc",
-      "background-color": "#64748b",
-      "transition-property": "background-color, border-color, border-width",
-      "transition-duration": 150,
-    },
-  },
-  ...(NODE_STYLE_RULES as cytoscape.Stylesheet[]),
-  {
-    selector: "edge",
-    style: {
-      width: "data(weight)",
-      "line-color": "rgba(148, 163, 184, 0.45)",
-      "target-arrow-color": "rgba(148, 163, 184, 0.65)",
-      "target-arrow-shape": "triangle-backcurve",
-      "curve-style": "bezier",
-      "arrow-scale": 0.9,
-      label: "data(label)",
-      "font-size": 9,
-      "text-rotation": "autorotate",
-      "text-margin-y": -6,
-      "text-background-color": "var(--background)",
-      "text-background-opacity": 0.7,
-      "text-background-padding": "2px",
-      color: "rgba(148, 163, 184, 0.85)",
-    },
-  },
-  {
-    selector: ":selected",
-    style: {
-      "border-width": 3,
-      "border-color": "#38bdf8",
-      "line-color": "#38bdf8",
-      "target-arrow-color": "#38bdf8",
-    },
-  },
-  {
-    selector: ".dimmed",
-    style: {
-      opacity: 0.18,
-    },
-  },
-]
+type DagMode = "td" | "bu" | "lr" | "rl" | "zout" | "zin" | "radialout" | "radialin"
+
+const LAYOUT_DAG: Record<LayoutKey, DagMode | null> = {
+  fcose: null,
+  "cose-bilkent": null,
+  breadthfirst: "td",
+  circle: "radialout",
+  grid: "lr",
+}
+
+type FGNode = {
+  id: string
+  name: string
+  type: string
+  color: string
+  val: number
+}
+
+type FGLink = {
+  id: string
+  source: string
+  target: string
+  edgeType: string
+  confidence?: number | null
+}
+
+const NODE_VAL: Record<string, number> = {
+  Run: 2.8,
+  Task: 2.2,
+  FailureMode: 2.6,
+  Outcome: 2.1,
+  FixPattern: 2,
+  Symptom: 1.7,
+  ChangePattern: 1.8,
+  Component: 1.9,
+  File: 1.6,
+}
+
+function nodeValFor(n: GraphNode): number {
+  return NODE_VAL[n.type] ?? 1.5
+}
 
 export function GraphCanvas({
   nodes,
@@ -168,7 +87,7 @@ export function GraphCanvas({
   visibleNodeTypes,
   visibleEdgeTypes,
   onSelectNode,
-  onCytoscape,
+  fgRef,
 }: {
   nodes: GraphNode[]
   edges: GraphEdge[]
@@ -177,101 +96,185 @@ export function GraphCanvas({
   visibleNodeTypes: Set<string>
   visibleEdgeTypes: Set<string>
   onSelectNode: (id: string) => void
-  onCytoscape?: (cy: Core) => void
+  fgRef: React.MutableRefObject<ForceGraphMethods | undefined>
 }) {
-  const cyRef = React.useRef<Core | null>(null)
-  const elements: ElementDefinition[] = React.useMemo(() => {
-    const ne: ElementDefinition[] = nodes.map((n) => ({
-      data: {
-        id: n.id,
-        label: n.name,
-        type: n.type,
-        properties: n.properties ?? {},
-      },
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [dim, setDim] = React.useState({ w: 0, h: 0 })
+
+  React.useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const measure = () =>
+      setDim({ w: Math.max(320, el.clientWidth), h: Math.max(320, el.clientHeight) })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const graphData = React.useMemo(() => {
+    const ns: FGNode[] = nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      color: nodeStyle(n).color,
+      val: nodeValFor(n),
     }))
-    const ee: ElementDefinition[] = edges.map((e) => ({
-      data: {
-        id: e.id,
-        source: e.source_id,
-        target: e.target_id,
-        label: e.type,
-        type: e.type,
-        weight: 1 + (e.confidence ?? 0.5) * 4,
-        confidence: e.confidence ?? null,
-        evidence_run_id: e.evidence_run_id ?? null,
-      },
+    const ls: FGLink[] = edges.map((e) => ({
+      id: e.id,
+      source: e.source_id,
+      target: e.target_id,
+      edgeType: e.type,
+      confidence: e.confidence ?? null,
     }))
-    return [...ne, ...ee]
+    return { nodes: ns, links: ls }
   }, [nodes, edges])
 
-  // Apply filters via display style
-  React.useEffect(() => {
-    const cy = cyRef.current
-    if (!cy) return
-    cy.batch(() => {
-      cy.nodes().forEach((n) => {
-        const visible = visibleNodeTypes.has(n.data("type"))
-        n.style("display", visible ? "element" : "none")
-      })
-      cy.edges().forEach((e) => {
-        const visibleType = visibleEdgeTypes.has(e.data("type"))
-        const sv = e.source().style("display") !== "none"
-        const tv = e.target().style("display") !== "none"
-        e.style("display", visibleType && sv && tv ? "element" : "none")
-      })
-    })
-  }, [visibleNodeTypes, visibleEdgeTypes, elements])
-
-  // Search highlight (dim others)
-  React.useEffect(() => {
-    const cy = cyRef.current
-    if (!cy) return
+  const matchingIds = React.useMemo(() => {
     const q = search.trim().toLowerCase()
-    cy.batch(() => {
-      cy.elements().removeClass("dimmed")
-      if (!q) return
-      const matches = cy
-        .nodes()
-        .filter(
-          (n) =>
-            String(n.data("label") ?? "").toLowerCase().includes(q) ||
-            String(n.data("type") ?? "").toLowerCase().includes(q) ||
-            String(n.data("id") ?? "").toLowerCase().includes(q),
-        )
-      cy.elements().addClass("dimmed")
-      matches.removeClass("dimmed")
-      matches.connectedEdges().removeClass("dimmed")
-    })
-  }, [search])
+    if (!q) return null
+    const set = new Set<string>()
+    for (const n of graphData.nodes) {
+      if (
+        n.name.toLowerCase().includes(q) ||
+        n.id.toLowerCase().includes(q) ||
+        n.type.toLowerCase().includes(q)
+      ) {
+        set.add(n.id)
+      }
+    }
+    return set
+  }, [graphData.nodes, search])
 
-  // Run layout when elements change or layout choice changes
+  const dagMode = LAYOUT_DAG[layout]
+
   React.useEffect(() => {
-    const cy = cyRef.current
-    if (!cy) return
-    const opts = LAYOUT_OPTIONS[layout]
-    cy.layout(opts as never).run()
-  }, [elements, layout])
+    const fg = fgRef.current
+    if (!fg || dagMode) return
+    const spread = layout === "cose-bilkent"
+    fg.d3Force("charge")?.strength(spread ? -260 : -120)
+    const link = fg.d3Force("link") as { distance?: (v: number) => void } | undefined
+    if (link && typeof link.distance === "function") {
+      link.distance(spread ? 72 : 48)
+    }
+    fg.d3ReheatSimulation()
+  }, [layout, dagMode, fgRef])
+
+  const autoFitDone = React.useRef(false)
+  React.useEffect(() => {
+    autoFitDone.current = false
+  }, [graphData, layout, dagMode])
+
+  React.useEffect(() => {
+    fgRef.current?.refresh()
+  }, [matchingIds, fgRef])
+
+  const nodeThreeObject = React.useCallback(
+    (node: object) => {
+      const n = node as FGNode
+      const dimmed = matchingIds && !matchingIds.has(n.id)
+      const opacity = dimmed ? 0.14 : 1
+      const r = 5 + n.val * 2.2
+      const geom = new THREE.SphereGeometry(r, 40, 40)
+      const col = new THREE.Color(n.color)
+      const mat = new THREE.MeshPhysicalMaterial({
+        color: col,
+        emissive: col,
+        emissiveIntensity: dimmed ? 0.08 : 0.42,
+        metalness: 0.22,
+        roughness: 0.28,
+        clearcoat: 0.92,
+        clearcoatRoughness: 0.12,
+        transparent: true,
+        opacity,
+      })
+      return new THREE.Mesh(geom, mat)
+    },
+    [matchingIds],
+  )
+
+  if (dim.w === 0 || dim.h === 0) {
+    return <div ref={containerRef} className="h-full w-full min-h-[320px]" />
+  }
 
   return (
-    <CytoscapeComponent
-      elements={elements}
-      stylesheet={STYLESHEET}
-      style={{ width: "100%", height: "100%" }}
-      layout={LAYOUT_OPTIONS[layout] as never}
-      cy={(cy: Core) => {
-        cyRef.current = cy
-        cy.removeAllListeners()
-        cy.on("tap", "node", (evt) => {
-          onSelectNode(evt.target.id())
-        })
-        cy.on("tap", (evt) => {
-          if (evt.target === cy) onSelectNode("")
-        })
-        onCytoscape?.(cy)
-      }}
-      wheelSensitivity={0.2}
-      minZoom={0.2}
-      maxZoom={2.5}
-    />
+    <div ref={containerRef} className="h-full w-full min-h-[320px] rounded-lg overflow-hidden">
+      <ForceGraph3D
+        ref={fgRef}
+        width={dim.w}
+        height={dim.h}
+        graphData={graphData}
+        backgroundColor="rgba(5, 8, 18, 0.92)"
+        controlType="trackball"
+        rendererConfig={{
+          antialias: true,
+          alpha: true,
+          powerPreference: "high-performance",
+          preserveDrawingBuffer: true,
+        }}
+        showNavInfo={false}
+        dagMode={dagMode ?? undefined}
+        dagLevelDistance={layout === "circle" ? 110 : 88}
+        warmupTicks={dagMode ? 48 : 96}
+        cooldownTicks={dagMode ? 120 : 280}
+        d3VelocityDecay={0.22}
+        nodeId="id"
+        nodeLabel={(n) =>
+          `<div style="padding:6px 8px;border-radius:8px;background:rgba(15,23,42,0.92);border:1px solid rgba(148,163,184,0.35);font:12px system-ui;max-width:220px"><b style="color:#e2e8f0">${(n as FGNode).name}</b><br/><span style="color:#94a3b8;font-family:ui-monospace">${(n as FGNode).type}</span></div>`
+        }
+        nodeThreeObject={nodeThreeObject}
+        nodeVisibility={(n) => visibleNodeTypes.has((n as FGNode).type)}
+        linkSource="source"
+        linkTarget="target"
+        linkLabel={(l) => (l as FGLink).edgeType}
+        linkVisibility={(l) => {
+          const link = l as FGLink
+          if (!visibleEdgeTypes.has(link.edgeType)) return false
+          return visibleNodeTypes.has(
+            graphData.nodes.find((x) => x.id === link.source)?.type ?? "",
+          ) &&
+            visibleNodeTypes.has(
+              graphData.nodes.find((x) => x.id === link.target)?.type ?? "",
+            )
+        }}
+        linkColor={(l) => {
+          const link = l as FGLink
+          if (!matchingIds) return "rgba(129, 140, 248, 0.45)"
+          const sid =
+            typeof link.source === "object"
+              ? (link.source as FGNode).id
+              : String(link.source)
+          const tid =
+            typeof link.target === "object"
+              ? (link.target as FGNode).id
+              : String(link.target)
+          const hit = matchingIds.has(sid) || matchingIds.has(tid)
+          return hit ? "rgba(165, 180, 252, 0.62)" : "rgba(129, 140, 248, 0.06)"
+        }}
+        linkWidth={(l) => {
+          const c = (l as FGLink).confidence
+          return 0.35 + (typeof c === "number" ? c : 0.5) * 2.2
+        }}
+        linkCurvature={0.18}
+        linkDirectionalArrowLength={5}
+        linkDirectionalArrowRelPos={0.92}
+        linkDirectionalArrowColor={() => "rgba(165, 180, 252, 0.85)"}
+        linkDirectionalParticles={2}
+        linkDirectionalParticleWidth={1.2}
+        linkDirectionalParticleSpeed={0.008}
+        linkDirectionalParticleColor={() => "rgba(196, 181, 253, 0.95)"}
+        onNodeClick={(node) => onSelectNode((node as FGNode).id)}
+        onBackgroundClick={() => onSelectNode("")}
+        onEngineStop={() => {
+          if (autoFitDone.current) return
+          autoFitDone.current = true
+          requestAnimationFrame(() => {
+            fgRef.current?.zoomToFit(600, 80, (n) =>
+              visibleNodeTypes.has((n as FGNode).type),
+            )
+          })
+        }}
+      />
+    </div>
   )
 }

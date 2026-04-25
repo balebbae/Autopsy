@@ -6,15 +6,18 @@ import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import {
   Download,
-  Filter,
+  Link2,
   Maximize,
   Network,
   RefreshCw,
   Search,
   Sparkles,
   Wand2,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react"
-import type { Core } from "cytoscape"
+import type { ForceGraphMethods } from "react-force-graph-2d"
 
 import {
   apiBaseUrl,
@@ -31,17 +34,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/primitives/empty-state"
-import { Legend } from "./legend"
 import { NodeDrawer } from "./node-drawer"
+import { EdgeCreateModal } from "./edge-create-modal"
+import { MiniMap } from "./mini-map"
 import {
-  GraphCanvas,
+  GraphCanvas2D,
   type LayoutKey,
   ALL_LAYOUTS,
-} from "./graph-canvas"
+  LAYOUT_LABELS,
+} from "./graph-canvas-2d"
 import { cn } from "@/lib/utils"
 
 type GraphPayload = {
@@ -94,9 +98,10 @@ export function GraphExplorer() {
     return { ...data, source: "api" }
   }, [data, forceMock])
 
-  const cyRef = React.useRef<Core | null>(null)
+  const fgRef = React.useRef<ForceGraphMethods | undefined>(undefined)
+  const positionedNodesRef = React.useRef<Array<{ id: string; x?: number; y?: number; type: string }>>([])
 
-  const [layout, setLayout] = React.useState<LayoutKey>("fcose")
+  const [layout, setLayout] = React.useState<LayoutKey>("dagLr")
   const [search, setSearch] = React.useState("")
   const [visibleNodeTypes, setVisibleNodeTypes] = React.useState<Set<string>>(
     new Set(),
@@ -104,8 +109,15 @@ export function GraphExplorer() {
   const [visibleEdgeTypes, setVisibleEdgeTypes] = React.useState<Set<string>>(
     new Set(),
   )
-  const [filtersOpen, setFiltersOpen] = React.useState(true)
   const [selectedId, setSelectedId] = React.useState<string>("")
+  const [hoveredId, setHoveredId] = React.useState<string>("")
+  const [filtersInitialized, setFiltersInitialized] = React.useState(false)
+  
+  // Edge creation mode
+  const [edgeCreateMode, setEdgeCreateMode] = React.useState(false)
+  const [edgeSourceId, setEdgeSourceId] = React.useState<string | null>(null)
+  const [edgeTargetId, setEdgeTargetId] = React.useState<string | null>(null)
+  const [showEdgeModal, setShowEdgeModal] = React.useState(false)
 
   const allNodeTypes = React.useMemo(
     () => Array.from(new Set((payload?.nodes ?? []).map((n) => n.type))).sort(),
@@ -116,14 +128,14 @@ export function GraphExplorer() {
     [payload],
   )
 
+  // Initialize filters when payload first loads
   React.useEffect(() => {
-    if (allNodeTypes.length === 0) return
+    if (filtersInitialized) return
+    if (allNodeTypes.length === 0 || allEdgeTypes.length === 0) return
     setVisibleNodeTypes(new Set(allNodeTypes))
-  }, [allNodeTypes.join("|")]) // eslint-disable-line react-hooks/exhaustive-deps
-  React.useEffect(() => {
-    if (allEdgeTypes.length === 0) return
     setVisibleEdgeTypes(new Set(allEdgeTypes))
-  }, [allEdgeTypes.join("|")]) // eslint-disable-line react-hooks/exhaustive-deps
+    setFiltersInitialized(true)
+  }, [allNodeTypes, allEdgeTypes, filtersInitialized])
 
   const nodesById = React.useMemo(() => {
     const m = new Map<string, GraphNode>()
@@ -133,11 +145,30 @@ export function GraphExplorer() {
 
   const selected = selectedId ? nodesById.get(selectedId) ?? null : null
 
-  const handleFit = () => cyRef.current?.fit(undefined, 60)
+  const handleFit = () => {
+    fgRef.current?.zoomToFit(400, 60)
+  }
+  const handleZoomIn = () => {
+    const fg = fgRef.current
+    if (!fg) return
+    const currentZoom = fg.zoom()
+    fg.zoom(currentZoom * 1.4, 300)
+  }
+  const handleZoomOut = () => {
+    const fg = fgRef.current
+    if (!fg) return
+    const currentZoom = fg.zoom()
+    fg.zoom(currentZoom / 1.4, 300)
+  }
   const handleExport = () => {
-    const cy = cyRef.current
-    if (!cy) return
-    const png = cy.png({ full: true, scale: 2, bg: "#0b1020" })
+    const fg = fgRef.current
+    // Get the canvas element from the force graph
+    const container = document.querySelector(".force-graph-container canvas") as HTMLCanvasElement
+    if (!container) {
+      toast.error("Could not find canvas element")
+      return
+    }
+    const png = container.toDataURL("image/png")
     const a = document.createElement("a")
     a.href = png
     a.download = `aag-graph-${new Date().toISOString().slice(0, 10)}.png`
@@ -145,10 +176,81 @@ export function GraphExplorer() {
     toast.success("Graph exported as PNG")
   }
   const handleRelayout = () => {
-    const cy = cyRef.current
-    if (!cy) return
-    cy.layout({ name: layout } as never).run()
+    fgRef.current?.d3ReheatSimulation()
   }
+
+  // Edge creation handlers
+  const handleNodeClickForEdge = (nodeId: string) => {
+    if (!edgeCreateMode) {
+      setSelectedId(nodeId)
+      // Zoom is handled in GraphCanvas2D when selectedId changes
+      return
+    }
+    
+    if (!edgeSourceId) {
+      setEdgeSourceId(nodeId)
+      toast.info("Now click the target node")
+    } else if (nodeId !== edgeSourceId) {
+      setEdgeTargetId(nodeId)
+      setShowEdgeModal(true)
+    }
+  }
+
+  const handleEdgeSubmit = (edgeType: string, confidence: number) => {
+    if (!edgeSourceId || !edgeTargetId) return
+    
+    // In a real app, this would call an API to create the edge
+    // For now, just show a success message
+    toast.success(`Connection created: ${edgeType} (${Math.round(confidence * 100)}%)`)
+    
+    // Reset edge creation state
+    setEdgeSourceId(null)
+    setEdgeTargetId(null)
+    setEdgeCreateMode(false)
+    setShowEdgeModal(false)
+  }
+
+  const cancelEdgeCreate = () => {
+    setEdgeCreateMode(false)
+    setEdgeSourceId(null)
+    setEdgeTargetId(null)
+    setShowEdgeModal(false)
+  }
+
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return
+      switch (e.key) {
+        case "f":
+          if (e.metaKey || e.ctrlKey) return
+          handleFit()
+          break
+        case "=":
+        case "+":
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault()
+            handleZoomIn()
+          }
+          break
+        case "-":
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault()
+            handleZoomOut()
+          }
+          break
+        case "Escape":
+          if (edgeCreateMode) {
+            cancelEdgeCreate()
+          } else {
+            setSelectedId("")
+          }
+          break
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [edgeCreateMode])
 
   if (isLoading && !payload) {
     return <FullCanvasSkeleton />
@@ -163,7 +265,7 @@ export function GraphExplorer() {
       {/* Floating top toolbar */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-4">
         <div className="pointer-events-auto flex items-center gap-2">
-          <div className="rounded-lg border border-border bg-card/80 backdrop-blur-md px-3 py-1.5 shadow-sm">
+            <div className="rounded-lg border border-border bg-card/80 backdrop-blur-md px-3 py-1.5 shadow-sm">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
               Failure graph
             </p>
@@ -186,105 +288,144 @@ export function GraphExplorer() {
                 </Badge>
               )}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Drag to pan · scroll to zoom · click to select
+            </p>
           </div>
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
-          <Card className="flex items-center gap-1 px-1.5 py-1 backdrop-blur-md bg-card/80 shadow-sm">
+        <div className="pointer-events-auto flex items-center gap-3">
+          <Card className="flex items-center gap-2 px-3 py-2 backdrop-blur-md bg-card/90 shadow-md">
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search nodes…"
-                className="h-8 pl-8 w-56 text-sm"
+                className="h-10 pl-10 w-64 text-sm"
               />
             </div>
             <Select value={layout} onValueChange={(v) => setLayout(v as LayoutKey)}>
-              <SelectTrigger className="h-8 w-40 text-sm">
-                <Wand2 className="h-3.5 w-3.5 mr-1.5 opacity-60" />
+              <SelectTrigger className="h-10 w-44 text-sm">
+                <Wand2 className="h-4 w-4 mr-2 opacity-60" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {ALL_LAYOUTS.map((l) => (
                   <SelectItem key={l} value={l}>
-                    {l}
+                    {LAYOUT_LABELS[l]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleRelayout}
-              aria-label="Re-run layout"
-              className="text-muted-foreground"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleFit}
-              aria-label="Fit graph"
-              className="text-muted-foreground"
-            >
-              <Maximize className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleExport}
-              aria-label="Export PNG"
-              className="text-muted-foreground"
-            >
-              <Download className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-1 border-l border-border/50 pl-2 ml-1">
+              <Button
+                variant={edgeCreateMode ? "default" : "ghost"}
+                size="icon"
+                onClick={() => {
+                  if (edgeCreateMode) {
+                    cancelEdgeCreate()
+                  } else {
+                    setEdgeCreateMode(true)
+                    setSelectedId("")
+                    toast.info("Click a source node to start")
+                  }
+                }}
+                aria-label={edgeCreateMode ? "Cancel connection" : "Add connection"}
+                className={cn(
+                  "h-10 w-10",
+                  edgeCreateMode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                )}
+              >
+                {edgeCreateMode ? <X className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleZoomOut}
+                aria-label="Zoom out"
+                className="text-muted-foreground h-10 w-10"
+              >
+                <ZoomOut className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleZoomIn}
+                aria-label="Zoom in"
+                className="text-muted-foreground h-10 w-10"
+              >
+                <ZoomIn className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleFit}
+                aria-label="Fit graph"
+                className="text-muted-foreground h-10 w-10"
+              >
+                <Maximize className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleExport}
+                aria-label="Export PNG"
+                className="text-muted-foreground h-10 w-10"
+              >
+                <Download className="h-5 w-5" />
+              </Button>
+            </div>
           </Card>
         </div>
       </div>
 
-      {/* Floating filter rail */}
-      <div className="absolute left-4 top-24 bottom-4 z-10 w-64 flex flex-col gap-3">
-        <Card className="flex-1 overflow-hidden flex flex-col backdrop-blur-md bg-card/80 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((v) => !v)}
-            className="flex items-center justify-between px-4 py-2.5 border-b border-border text-left cursor-pointer hover:bg-accent/40"
-          >
-            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              <Filter className="h-3.5 w-3.5" /> Filters
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              {filtersOpen ? "Hide" : "Show"}
-            </span>
-          </button>
-          {filtersOpen ? (
-            <div className="p-3 space-y-4 overflow-y-auto scrollbar-thin">
-              <FilterGroup
-                title="Node type"
-                items={allNodeTypes}
-                selected={visibleNodeTypes}
-                onToggle={(t) =>
-                  setVisibleNodeTypes((prev) => toggle(prev, t))
-                }
-                onAll={() => setVisibleNodeTypes(new Set(allNodeTypes))}
-                onNone={() => setVisibleNodeTypes(new Set())}
-              />
-              <FilterGroup
-                title="Edge type"
-                items={allEdgeTypes}
-                selected={visibleEdgeTypes}
-                onToggle={(t) =>
-                  setVisibleEdgeTypes((prev) => toggle(prev, t))
-                }
-                onAll={() => setVisibleEdgeTypes(new Set(allEdgeTypes))}
-                onNone={() => setVisibleEdgeTypes(new Set())}
-              />
+      {/* Simplified filter panel */}
+      <div className="absolute left-4 top-28 z-10">
+        <Card className="backdrop-blur-md bg-card/90 shadow-md p-4 w-56">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium">Filters</span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setVisibleNodeTypes(new Set(allNodeTypes))
+                  setVisibleEdgeTypes(new Set(allEdgeTypes))
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent"
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVisibleNodeTypes(new Set())
+                  setVisibleEdgeTypes(new Set())
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-accent"
+              >
+                None
+              </button>
             </div>
-          ) : null}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {allNodeTypes.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setVisibleNodeTypes((prev) => toggle(prev, t))}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs font-medium rounded-md border transition-colors",
+                  visibleNodeTypes.has(t)
+                    ? "bg-primary/10 border-primary/30 text-primary"
+                    : "bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50"
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </Card>
-        <Legend />
       </div>
 
       {/* Canvas */}
@@ -310,18 +451,39 @@ export function GraphExplorer() {
             />
           </div>
         ) : (
-          <GraphCanvas
-            nodes={visibleNodes}
-            edges={visibleEdges}
-            layout={layout}
-            search={search}
-            visibleNodeTypes={visibleNodeTypes}
-            visibleEdgeTypes={visibleEdgeTypes}
-            onSelectNode={(id) => setSelectedId(id)}
-            onCytoscape={(cy) => {
-              cyRef.current = cy
-            }}
-          />
+          <>
+            <GraphCanvas2D
+              fgRef={fgRef}
+              positionedNodesRef={positionedNodesRef}
+              nodes={visibleNodes}
+              edges={visibleEdges}
+              layout={layout}
+              search={search}
+              visibleNodeTypes={visibleNodeTypes}
+              visibleEdgeTypes={visibleEdgeTypes}
+              selectedId={edgeCreateMode ? edgeSourceId || "" : selectedId}
+              hoveredId={hoveredId}
+              onSelectNode={handleNodeClickForEdge}
+              onHoverNode={(id) => setHoveredId(id)}
+            />
+            {/* Edge creation mode indicator */}
+            {edgeCreateMode && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+                <Card className="px-4 py-2 bg-primary text-primary-foreground shadow-lg">
+                  <p className="text-sm font-medium">
+                    {edgeSourceId 
+                      ? `Source: ${nodesById.get(edgeSourceId)?.name || edgeSourceId} → Click target node`
+                      : "Click a source node to start connection"
+                    }
+                  </p>
+                </Card>
+              </div>
+            )}
+            {/* Mini-map */}
+            <div className="absolute bottom-4 right-4 z-10">
+              <MiniMap fgRef={fgRef} positionedNodesRef={positionedNodesRef} />
+            </div>
+          </>
         )}
       </div>
 
@@ -332,71 +494,17 @@ export function GraphExplorer() {
         onClose={() => setSelectedId("")}
         onSelectNode={(n) => setSelectedId(n.id)}
       />
-    </div>
-  )
-}
 
-function FilterGroup({
-  title,
-  items,
-  selected,
-  onToggle,
-  onAll,
-  onNone,
-}: {
-  title: string
-  items: string[]
-  selected: Set<string>
-  onToggle: (t: string) => void
-  onAll: () => void
-  onNone: () => void
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
-          {title}
-        </span>
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <button
-            type="button"
-            onClick={onAll}
-            className="hover:text-foreground cursor-pointer"
-          >
-            all
-          </button>
-          <span>·</span>
-          <button
-            type="button"
-            onClick={onNone}
-            className="hover:text-foreground cursor-pointer"
-          >
-            none
-          </button>
-        </div>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">—</p>
-      ) : (
-        <ul className="space-y-1">
-          {items.map((t) => (
-            <li key={t}>
-              <label
-                className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1 text-sm cursor-pointer hover:bg-accent/60",
-                )}
-              >
-                <Checkbox
-                  checked={selected.has(t)}
-                  onCheckedChange={() => onToggle(t)}
-                  aria-label={`Toggle ${t}`}
-                />
-                <span className="font-mono text-[12px]">{t}</span>
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
+      <EdgeCreateModal
+        open={showEdgeModal}
+        onClose={() => {
+          setShowEdgeModal(false)
+          setEdgeTargetId(null)
+        }}
+        sourceNode={edgeSourceId ? nodesById.get(edgeSourceId) || null : null}
+        targetNode={edgeTargetId ? nodesById.get(edgeTargetId) || null : null}
+        onSubmit={handleEdgeSubmit}
+      />
     </div>
   )
 }
