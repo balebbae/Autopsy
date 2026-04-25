@@ -7,11 +7,21 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from aag import __version__
 from aag.db import dispose
+from aag.db_init import init_schema
 from aag.routes import events, graph, preflight, runs, stream
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Idempotent — re-applies contracts/db-schema.sql so additive contract
+    # changes (new tables / columns / indexes) reach existing dev databases
+    # without requiring `make db-reset`.
+    try:
+        await init_schema()
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("init_schema failed (continuing)")
     yield
     await dispose()
 
