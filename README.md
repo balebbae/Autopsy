@@ -41,16 +41,36 @@ Service + dashboard logs stream to the same terminal with `[svc]` / `[dash]`
 prefixes. **Ctrl+C** stops both cleanly. Postgres keeps running between
 sessions; `make compose-down` stops it.
 
-The plugin is **not a server** — it's a TypeScript file loaded by opencode at
-runtime. To exercise it end-to-end, in a separate terminal:
+## Install in your project
+
+From **your project's root** (not the Autopsy repo), run:
 
 ```bash
-make plugin-link          # symlink plugin/src/index.ts into .opencode/plugins/
-opencode                  # run opencode against this directory (or any project
-                          # whose .opencode/plugins/ contains autopsy.ts)
+curl -fsSL https://raw.githubusercontent.com/balebbae/Autopsy/main/scripts/init.sh | bash
 ```
 
-To populate the dashboard without running opencode:
+This downloads the plugin source, bundles it, and places it at
+`.opencode/plugins/autopsy.js`. Set these env vars (or add to `.env`) so the
+plugin can reach the Autopsy service:
+
+```bash
+AAG_URL=http://localhost:4000   # where the Autopsy service is running
+AAG_TOKEN=                      # optional auth token
+```
+
+Then start `opencode` as usual — the plugin loads automatically. Re-run the
+curl command at any time to update to the latest version.
+
+### For Autopsy contributors
+
+If you're working on the plugin itself, use the dev symlink instead:
+
+```bash
+make plugin-link          # symlinks plugin/src/index.ts into .opencode/plugins/
+opencode                  # loads the symlinked .ts source directly (hot-reloadable)
+```
+
+### Populate the dashboard without opencode
 
 ```bash
 make replay               # streams contracts/fixtures/run-rejected-schema.json
