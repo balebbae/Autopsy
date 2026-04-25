@@ -235,9 +235,7 @@ def _infer_task_type(task: str | None) -> str | None:
 def _build_rejection_summary(ctx: RunContext) -> str:
     tools_used = [tc.get("tool", "") for tc in ctx.tool_commands if tc.get("tool")]
     failed = [
-        tc.get("tool", "")
-        for tc in ctx.tool_commands
-        if tc.get("exit_code") or tc.get("stderr")
+        tc.get("tool", "") for tc in ctx.tool_commands if tc.get("exit_code") or tc.get("stderr")
     ]
     parts: list[str] = []
     if tools_used:
