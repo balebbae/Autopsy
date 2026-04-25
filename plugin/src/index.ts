@@ -4,12 +4,12 @@
 //   1) symlinked into .opencode/plugins/autopsy.ts (see scripts/link-plugin.sh), or
 //   2) referenced as an npm package in opencode.json.
 //
-// Type imports are intentionally loose — the plugin runtime injects `client`,
-// `$`, etc. and we don't want a hard dependency on @opencode-ai/plugin's
-// internal Plugin type which is still iterating.
+// opencode 1.x expects a PluginModule shape: `{ server: PluginFn }` as the
+// default export. The function returns a Hooks object. See
+// .opencode/node_modules/@opencode-ai/plugin/dist/index.d.ts.
 
 import { onEvent } from "./handlers/event.ts"
-import { onPermissionAsk, onPermissionReplied } from "./handlers/permission.ts"
+import { onPermissionAsk } from "./handlers/permission.ts"
 import { onSystemTransform } from "./handlers/system.ts"
 import { onToolAfter } from "./handlers/tool-after.ts"
 import { onToolBefore } from "./handlers/tool-before.ts"
@@ -21,7 +21,8 @@ const Autopsy = async (ctx: {
   client?: unknown
   $?: unknown
 }) => ({
-  event: (e: { type: string; properties: Record<string, unknown> }) => onEvent(e, ctx),
+  event: (input: { event: { type: string; properties: Record<string, unknown> } }) =>
+    onEvent(input, ctx),
 
   "tool.execute.before": (input: any, output: any) => onToolBefore(input, output),
   "tool.execute.after": (input: any, output: any) => onToolAfter(input, output),
@@ -30,11 +31,7 @@ const Autopsy = async (ctx: {
 
   "experimental.chat.system.transform": (input: any, output: any) =>
     onSystemTransform(input, output),
-
-  // Bus event mirroring picks up permission.replied too, but we attach an
-  // outcome side effect when the reply is reject.
-  "permission.replied": (props: any) => onPermissionReplied(props),
 })
 
-export default Autopsy
+export default { id: "autopsy", server: Autopsy }
 export { Autopsy }
