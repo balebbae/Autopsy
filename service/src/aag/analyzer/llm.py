@@ -175,9 +175,10 @@ async def enhance_classification(
 
 async def _call_gemma(ctx, baseline, settings) -> LLMClassification | None:
     try:
-        import google.generativeai as genai  # type: ignore  # noqa: F811
+        from google import genai
+        from google.genai import types
     except ImportError:
-        log.warning("google-generativeai not installed; pip install 'aag[gemma]'")
+        log.warning("google-genai not installed; pip install 'aag[gemma]'")
         return None
 
     if not settings.gemini_api_key:
@@ -185,18 +186,17 @@ async def _call_gemma(ctx, baseline, settings) -> LLMClassification | None:
         return None
 
     try:
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel(
-            model_name=settings.gemma_model,
-            system_instruction=SYSTEM_PROMPT,
-            generation_config=genai.GenerationConfig(
+        client = genai.Client(api_key=settings.gemini_api_key)
+        prompt = _build_prompt(ctx, baseline)
+        response = await client.aio.models.generate_content(
+            model=settings.gemma_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
                 response_mime_type="application/json",
                 temperature=0.2,
             ),
         )
-
-        prompt = _build_prompt(ctx, baseline)
-        response = await model.generate_content_async(prompt)
         return _parse_response(response.text)
     except Exception:
         log.exception("Gemma classification failed")
