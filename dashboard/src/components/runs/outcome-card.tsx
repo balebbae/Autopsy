@@ -33,10 +33,9 @@ export function OutcomeCard({ run }: { run: Run }) {
           {count > 0 ? <RejectionBadge count={count} tone="active" /> : null}
         </div>
         <p className="text-xs text-muted-foreground">
-          Events streaming live from <span className="font-mono">/v1/runs/:id/stream</span>.
           {count > 0
-            ? " The agent is recovering after one or more failures filed during this thread."
-            : null}
+            ? `Recovering after ${count} ${count === 1 ? "failure" : "failures"} filed in this thread.`
+            : "Events streaming live."}
         </p>
         {rejections.length > 0 ? <RejectionList rejections={rejections} /> : null}
         {analyzing ? <AnalyzingPill /> : null}

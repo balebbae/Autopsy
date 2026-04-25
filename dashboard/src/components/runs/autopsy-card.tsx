@@ -52,11 +52,14 @@ export function AutopsyCard({
       </SectionCard>
     )
   }
+  const rejCount = run?.rejection_count ?? 0
+  const title = rejCount > 1 ? "Latest autopsy" : "Autopsy"
+  const description =
+    rejCount > 1
+      ? `Most recent rejection of ${rejCount} · classified failure mode + symptoms`
+      : "Classified failure mode + symptoms"
   return (
-    <SectionCard
-      title="Autopsy"
-      description="Classified failure mode + symptoms"
-    >
+    <SectionCard title={title} description={description}>
       <div className="space-y-5">
         <div>
           <p className="text-[11px] uppercase tracking-widest text-muted-foreground">

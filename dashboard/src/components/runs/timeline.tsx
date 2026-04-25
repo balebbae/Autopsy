@@ -164,6 +164,21 @@ function TimelineRow({
   onClick: () => void
 }) {
   const summary = summariseEvent(event)
+  const label = labelForEvent(event)
+  // Transient flash for newly-arrived events: ring fades after ~1.6s so the
+  // styling reads as "this just arrived" instead of staying on every row
+  // forever and looking like a permanent severity tag.
+  const [flashing, setFlashing] = React.useState(isNew)
+  React.useEffect(() => {
+    if (!flashing) return
+    const t = window.setTimeout(() => setFlashing(false), 1600)
+    return () => window.clearTimeout(t)
+  }, [flashing])
+
+  // Severity classes are *intrinsic* to the event type (rejection = red,
+  // approval = emerald, idle = quiet). They have nothing to do with whether
+  // the row is newly-streamed.
+  const severity = severityForEvent(event)
   return (
     <motion.li
       layout
@@ -171,30 +186,48 @@ function TimelineRow({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
-      className="relative pl-12 pr-2 py-2.5"
+      className={cn(
+        "relative pl-12 pr-2",
+        severity === "muted" ? "py-1" : "py-2.5",
+      )}
     >
       <button
         type="button"
         onClick={onClick}
         className={cn(
           "group w-full flex items-start gap-3 rounded-md px-2 py-2 -mx-2 text-left transition-colors hover:bg-accent/60 cursor-pointer",
-          isNew && "ring-1 ring-amber-500/40 bg-amber-500/5",
+          severity === "rejection" &&
+            "ring-1 ring-red-500/40 bg-red-500/5",
+          flashing &&
+            severity !== "rejection" &&
+            "ring-1 ring-sky-500/30 bg-sky-500/[0.04]",
+          severity === "muted" && "py-1.5 opacity-70",
         )}
       >
-        <span className="absolute left-5 top-3.5 grid h-7 w-7 place-items-center rounded-full bg-card border border-border">
+        <span
+          className={cn(
+            "absolute left-5 top-3.5 grid h-7 w-7 place-items-center rounded-full bg-card border border-border",
+            severity === "muted" && "h-5 w-5 left-6 top-2.5",
+          )}
+        >
           <EventIcon type={event.type} />
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm font-medium truncate">
-              {eventLabel[event.type] ?? event.type}
+            <span className={cn("text-sm font-medium truncate", severity === "muted" && "text-xs font-normal text-muted-foreground")}>
+              {label}
             </span>
             <span className="text-[11px] font-mono text-muted-foreground tabular-nums shrink-0">
               {new Date(event.ts).toLocaleTimeString()}
             </span>
           </div>
           {summary ? (
-            <p className="mt-0.5 text-[12px] text-muted-foreground truncate">
+            <p
+              className={cn(
+                "mt-0.5 text-[12px] text-muted-foreground truncate",
+                severity === "muted" && "hidden",
+              )}
+            >
               {summary}
             </p>
           ) : null}
@@ -205,6 +238,49 @@ function TimelineRow({
   )
 }
 
+type Severity = "default" | "rejection" | "muted"
+
+function severityForEvent(e: Mergeable): Severity {
+  if (
+    e.type === "permission.replied" &&
+    (e.properties as { reply?: string } | undefined)?.reply === "reject"
+  ) {
+    return "rejection"
+  }
+  if (e.type === "session.idle") return "muted"
+  return "default"
+}
+
+function labelForEvent(e: Mergeable): string {
+  // Dynamic labels that depend on payload — fall back to the static
+  // `eventLabel` map otherwise.
+  if (e.type === "message.part.updated") {
+    const part = (e.properties as { part?: { type?: string } } | undefined)?.part
+    if (part?.type === "text") return "User message"
+  }
+  if (e.type === "message.created") {
+    const role = pickRole(e.properties)
+    if (role === "user") return "User message"
+    if (role === "assistant") return "Assistant message"
+  }
+  if (
+    e.type === "permission.replied" &&
+    (e.properties as { reply?: string } | undefined)?.reply === "reject"
+  ) {
+    return "Permission rejected"
+  }
+  if (e.type === "session.idle") return "Session paused"
+  return eventLabel[e.type] ?? e.type
+}
+
+function pickRole(props: Record<string, unknown>): string | null {
+  const flat = typeof props["role"] === "string" ? (props["role"] as string) : null
+  if (flat) return flat
+  const inner = props["message"] as Record<string, unknown> | undefined
+  if (inner && typeof inner["role"] === "string") return inner["role"] as string
+  return null
+}
+
 function summariseEvent(e: Mergeable): string | null {
   const p = e.properties as Record<string, unknown>
   switch (e.type) {
@@ -212,6 +288,22 @@ function summariseEvent(e: Mergeable): string | null {
       const info = (p.info as Record<string, unknown> | undefined) ?? {}
       const title = info.title as string | undefined
       return title ? `“${title}”` : null
+    }
+    case "message.part.updated": {
+      const part = p.part as
+        | { type?: string; text?: string }
+        | undefined
+      if (part?.type === "text" && part.text) {
+        return truncateForRow(part.text)
+      }
+      return null
+    }
+    case "message.created":
+    case "message.updated": {
+      const inner = (p.message as Record<string, unknown> | undefined) ?? p
+      const text = extractTextFromMessageProps(inner)
+      if (text) return truncateForRow(text)
+      return null
     }
     case "tool.execute.before":
     case "tool.execute.after": {
@@ -241,4 +333,30 @@ function summariseEvent(e: Mergeable): string | null {
     default:
       return null
   }
+}
+
+function truncateForRow(s: string, max = 120): string {
+  const t = s.replace(/\s+/g, " ").trim()
+  return t.length > max ? `${t.slice(0, max)}…` : t
+}
+
+function extractTextFromMessageProps(props: Record<string, unknown>): string | null {
+  // Direct content / text
+  for (const key of ["content", "text"]) {
+    const v = props[key]
+    if (typeof v === "string" && v.trim()) return v
+  }
+  // Parts: [{ type: "text", text: "..." }, ...]
+  const parts = props["parts"]
+  if (Array.isArray(parts)) {
+    const collected: string[] = []
+    for (const p of parts) {
+      if (p && typeof p === "object" && (p as { type?: string }).type === "text") {
+        const t = (p as { text?: unknown }).text
+        if (typeof t === "string" && t.trim()) collected.push(t)
+      }
+    }
+    if (collected.length) return collected.join(" ")
+  }
+  return null
 }
