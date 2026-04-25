@@ -6,13 +6,15 @@ Project-specific notes for the Agent Autopsy Graph monorepo.
 
 - Don't run tests from the repo root. Tests live inside packages (`service/`, `dashboard/`, `plugin/`).
 - opencode is not vendored here — install it from <https://opencode.ai/docs/>. Our plugin is loaded via `.opencode/plugins/autopsy.ts` (symlinked by `make plugin-link`).
-- Source of truth for the HTTP API and DB schema lives in `contracts/`. If you change an endpoint or table, update `contracts/openapi.yaml` and `contracts/db-schema.sql` in the same commit as the code change.
+- **API and DB contracts**: `contracts/openapi.yaml` and `contracts/db-schema.sql` are the source of truth. Update both in the same commit when changing endpoints or tables.
+- Common dev commands: `make dev` (full stack), `make seed` (synthetic failures), `make replay` (demo run → dashboard).
 
 ## Service (Python / FastAPI / uv)
 
 - Python 3.12+. Manage deps with `uv add` / `uv remove`; never edit `pyproject.toml` deps by hand.
-- Format and lint with `ruff` (`uv run ruff format`, `uv run ruff check`).
+- Format and lint: `make service-lint` (or `cd service && uv run ruff check . && uv run ruff format --check .`).
 - Type-check with `pyright` if installed.
+- Test: `make service-test` (or `cd service && uv run pytest -q`).
 - Use SQLAlchemy 2.x async (`AsyncSession`); never block the event loop.
 - Pydantic v2 for request/response schemas; SQLAlchemy ORM models live in `aag.models`, request/response models in `aag.schemas`.
 - All endpoints prefixed `/v1/`.
