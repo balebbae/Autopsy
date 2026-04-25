@@ -48,11 +48,32 @@ const fetcher = async (url: string) => {
   return (await r.json()) as RunSummary[]
 }
 
+function useRelativeRefreshTime(intervalMs: number) {
+  const [lastRefresh, setLastRefresh] = React.useState<Date>(new Date())
+  const [secondsAgo, setSecondsAgo] = React.useState(0)
+
+  const markRefresh = React.useCallback(() => {
+    setLastRefresh(new Date())
+    setSecondsAgo(0)
+  }, [])
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setSecondsAgo(Math.floor((Date.now() - lastRefresh.getTime()) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [lastRefresh])
+
+  return { secondsAgo, markRefresh }
+}
+
 export function RunsOverview({ initial }: { initial: RunSummary[] }) {
+  const { secondsAgo, markRefresh } = useRelativeRefreshTime(5000)
   const { data, isLoading } = useSWR<RunSummary[]>(`${apiBaseUrl}/v1/runs`, fetcher, {
     fallbackData: initial,
     refreshInterval: 5000,
     revalidateOnFocus: false,
+    onSuccess: () => markRefresh(),
   })
 
   const runs = data ?? []
@@ -166,7 +187,14 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
 
       <SectionCard
         title="Runs"
-        description="Click a row to inspect the timeline + autopsy"
+        description={
+          <span className="inline-flex items-center gap-2">
+            Click a row to inspect the timeline + autopsy
+            <span className="text-[11px] tabular-nums text-muted-foreground/70">
+              &middot; Updated {secondsAgo < 2 ? "just now" : `${secondsAgo}s ago`}
+            </span>
+          </span>
+        }
         action={
           <FilterBar
             project={project}
@@ -308,7 +336,15 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
               className="group border-b border-border/60 hover:bg-accent/40 transition-colors"
             >
               <td className="px-5 py-3 align-middle">
-                <StatusPill status={r.status} />
+                <div className="flex items-center gap-2">
+                  <StatusPill status={r.status} />
+                  {r.status === "active" && (
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    </span>
+                  )}
+                </div>
               </td>
               <td className="px-5 py-3 align-middle max-w-md">
                 <Link
