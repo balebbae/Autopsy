@@ -12,13 +12,19 @@ Do NOT call the tool preemptively — only after the user has confirmed or expla
 export const onSystemTransform = async (
   input: { sessionID: string; lastUserMessage?: string },
   output: { system: string[] },
+  ctx: { project?: { id?: string }; worktree?: string },
 ) => {
   output.system.push(DISSATISFACTION_PROMPT)
 
   const task = input.lastUserMessage ?? ""
   if (!task) return
 
-  const risk = await preflight({ run_id: input.sessionID, task })
+  const risk = await preflight({
+    run_id: input.sessionID,
+    task,
+    project: ctx.project?.id,
+    worktree: ctx.worktree,
+  })
   if (!risk?.system_addendum) return
 
   output.system.push(risk.system_addendum)

@@ -10,6 +10,7 @@ RiskLevel = Literal["none", "low", "medium", "high"]
 class PreflightRequest(BaseModel):
     run_id: str | None = None
     task: str
+    project: str | None = None
     worktree: str | None = None
     tool: str | None = None
     args: dict[str, Any] | None = None

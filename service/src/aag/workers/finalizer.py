@@ -76,7 +76,7 @@ async def on_rejection_filed(run_id: str, *, reason: str) -> None:
                 if run is not None:
                     extraction = extract(ctx, fc)
                     await gwriter.write(session, run=run, failure_case=fc, extraction=extraction)
-                    await gembed.write_for(session, failure_case=fc, run=run)
+                    await gembed.write_for(session, failure_case=fc, run=run, extraction=extraction)
             except Exception:  # noqa: BLE001
                 log.exception("run %s: graph/embedding step failed for rejection", run_id)
                 await session.rollback()
@@ -112,7 +112,7 @@ async def on_run_complete(run_id: str) -> None:
             if run is not None:
                 extraction = extract(ctx, fc)
                 await gwriter.write(session, run=run, failure_case=fc, extraction=extraction)
-                await gembed.write_for(session, failure_case=fc, run=run)
+                await gembed.write_for(session, failure_case=fc, run=run, extraction=extraction)
         except Exception:  # noqa: BLE001
             log.exception("run %s: graph/embedding step failed", run_id)
             # Roll back only the post-classify writes; commit the FailureCase

@@ -8,6 +8,7 @@ import { latestUserMessage } from "../last-task.ts"
 export const onToolBefore = async (
   input: { sessionID: string; tool: string },
   output: { args: Record<string, unknown> },
+  ctx: { project?: { id?: string }; worktree?: string },
 ) => {
   if (!config.preflightTools.has(input.tool)) return
 
@@ -17,6 +18,8 @@ export const onToolBefore = async (
     // user-authored chat message flows through the bus (see last-task.ts).
     // Falls back to "" if no user message has been observed yet this session.
     task: latestUserMessage() ?? "",
+    project: ctx.project?.id,
+    worktree: ctx.worktree,
     tool: input.tool,
     args: output.args,
   })
