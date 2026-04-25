@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aag.analyzer.extractor import extract_components
+from aag.config import get_settings
 from aag.ingestion.assembler import list_run_artifacts, list_run_events
 from aag.models import Run
 from aag.schemas.runs import FailureCaseOut, Symptom
@@ -72,16 +73,25 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
 
     symptoms.extend(REJECTION_RULE.check(ctx))
 
-    if not symptoms:
+    is_rejected = ctx.status == "rejected"
+
+    if not symptoms and not is_rejected:
         return None
 
-    failure_mode = _pick_failure_mode(symptoms)
-    change_patterns = [s.name for s in symptoms]
-    components = extract_components(ctx.files)
-    fix_pattern = MODE_TO_FIX.get(failure_mode)
-    summary = ctx.rejection_reason or ", ".join(s.name for s in symptoms)
+    if symptoms:
+        failure_mode = _pick_failure_mode(symptoms)
+        change_patterns = [s.name for s in symptoms]
+        fix_pattern = MODE_TO_FIX.get(failure_mode)
+        summary = ctx.rejection_reason or ", ".join(s.name for s in symptoms)
+    else:
+        failure_mode = "permission_rejected"
+        change_patterns = []
+        fix_pattern = None
+        summary = ctx.rejection_reason or _build_rejection_summary(ctx)
 
-    return FailureCaseOut(
+    components = extract_components(ctx.files)
+
+    baseline = FailureCaseOut(
         run_id=run_id,
         task_type=_infer_task_type(ctx.task),
         failure_mode=failure_mode,
@@ -91,6 +101,16 @@ async def classify(session: AsyncSession, run_id: str) -> FailureCaseOut | None:
         symptoms=symptoms,
         summary=summary,
     )
+
+    settings = get_settings()
+    if settings.llm_provider != "none":
+        from aag.analyzer.llm import enhance_classification, merge_llm_result
+
+        llm_result = await enhance_classification(ctx, baseline)
+        if llm_result:
+            baseline = merge_llm_result(baseline, llm_result)
+
+    return baseline
 
 
 async def _build_context(session: AsyncSession, run: Run) -> RunContext:
@@ -208,3 +228,21 @@ def _infer_task_type(task: str | None) -> str | None:
     if any(w in lower for w in ("update", "upgrade", "bump", "change")):
         return "modification"
     return None
+
+
+def _build_rejection_summary(ctx: RunContext) -> str:
+    tools_used = [tc.get("tool", "") for tc in ctx.tool_commands if tc.get("tool")]
+    failed = [
+        tc.get("tool", "")
+        for tc in ctx.tool_commands
+        if tc.get("exit_code") or tc.get("stderr")
+    ]
+    parts: list[str] = []
+    if tools_used:
+        parts.append(f"User rejected after agent used: {', '.join(tools_used[:5])}")
+    if failed:
+        parts.append(f"Failed tools: {', '.join(failed[:3])}")
+    if ctx.user_messages:
+        last = ctx.user_messages[-1][:200]
+        parts.append(f"Last user message: {last}")
+    return ". ".join(parts) if parts else "User rejected a tool permission"

@@ -30,6 +30,9 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
             Autopsy
           </h2>
+          {run.failure_case.summary ? (
+            <p className="mb-3 text-sm">{run.failure_case.summary}</p>
+          ) : null}
           <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-zinc-500">Failure mode</dt>
@@ -39,20 +42,32 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
               <dt className="text-zinc-500">Suggested fix</dt>
               <dd>{run.failure_case.fix_pattern ?? "—"}</dd>
             </div>
-            <div className="sm:col-span-2">
-              <dt className="text-zinc-500">Symptoms</dt>
-              <dd>
-                <ul className="list-disc pl-5">
-                  {run.failure_case.symptoms.map((s) => (
-                    <li key={s.name}>
-                      <span className="font-medium">{s.name}</span>
-                      <span className="text-zinc-500"> · {Math.round(s.confidence * 100)}%</span>
-                    </li>
-                  ))}
-                </ul>
-              </dd>
-            </div>
+            {run.failure_case.symptoms.length > 0 ? (
+              <div className="sm:col-span-2">
+                <dt className="text-zinc-500">Symptoms</dt>
+                <dd>
+                  <ul className="list-disc pl-5">
+                    {run.failure_case.symptoms.map((s) => (
+                      <li key={s.name}>
+                        <span className="font-medium">{s.name}</span>
+                        <span className="text-zinc-500"> · {Math.round(s.confidence * 100)}%</span>
+                        {s.source ? (
+                          <span className="ml-1 text-xs text-zinc-400">[{s.source}]</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            ) : null}
           </dl>
+        </section>
+      ) : run.status === "rejected" ? (
+        <section className="mb-8 rounded border border-zinc-200 p-4 dark:border-zinc-800">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Autopsy
+          </h2>
+          <p className="text-sm text-zinc-400 animate-pulse">Analyzing failure…</p>
         </section>
       ) : null}
 

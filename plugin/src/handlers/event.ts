@@ -68,8 +68,19 @@ export const onEvent = async (
   }
 
   // --- Noise filter: drop chatty events that add no signal ---
+  // Exception: user text messages (type=text, no "time" field) are persisted
+  // because the classifier needs them for sentiment analysis and LLM context.
 
-  if (NOISY_TYPES.has(e.type)) return
+  if (e.type === "message.part.updated") {
+    const isUserText =
+      props.part?.type === "text" &&
+      props.part?.text?.trim() &&
+      !("time" in (props.part ?? {}))
+    if (!isUserText) return
+  } else if (NOISY_TYPES.has(e.type)) {
+    return
+  }
+
   if (e.type === "session.diff" && isEmptyDiff(e.properties ?? {})) return
 
   const ev: EventIn = {

@@ -203,6 +203,50 @@ class TestAllRulesOnFixture:
         assert "profile" in components
 
 
+class TestRejectedRunWithNoSymptoms:
+    def test_rejected_run_still_produces_baseline(self):
+        """Permission rejections may have zero rule-based symptoms but should
+        still produce a FailureCaseOut so Gemma can analyze them."""
+        ctx = RunContext(
+            run_id="r1",
+            task="Add dark mode toggle",
+            status="rejected",
+            rejection_reason=None,
+            files=[],
+            patches={},
+            events=[],
+            user_messages=["add a dark mode toggle"],
+        )
+        symptoms: list[Symptom] = []
+        for rule in ALL_RULES:
+            result = rule.check(ctx)
+            if result is not None:
+                symptoms.append(result)
+        symptoms.extend(REJECTION_RULE.check(ctx))
+        assert len(symptoms) == 0
+
+        is_rejected = ctx.status == "rejected"
+        assert is_rejected
+        # Previously this would have returned None
+
+    def test_non_rejected_with_no_symptoms_returns_nothing(self):
+        ctx = RunContext(
+            run_id="r1",
+            task="refactor utils",
+            status="in_progress",
+            rejection_reason=None,
+        )
+        symptoms: list[Symptom] = []
+        for rule in ALL_RULES:
+            result = rule.check(ctx)
+            if result is not None:
+                symptoms.append(result)
+        symptoms.extend(REJECTION_RULE.check(ctx))
+        assert len(symptoms) == 0
+        is_rejected = ctx.status == "rejected"
+        assert not is_rejected
+
+
 class TestSentimentRule:
     def test_detects_profanity(self):
         ctx = RunContext(

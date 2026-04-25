@@ -37,6 +37,7 @@ class Symptom(BaseModel):
     name: str
     evidence: list[str] = Field(default_factory=list)
     confidence: float = 0.5
+    source: str | None = None
 
 
 class FailureCaseOut(BaseModel):
