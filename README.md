@@ -69,6 +69,53 @@ Don't start coding before these four files are agreed on:
 
 See `docs/ownership.md` for who owns which directory.
 
+## What's left to build
+
+R1 (Plugin) and R2 (Service ingestion) are essentially complete. R3 (Analyzer/Graph)
+is mostly stubs. R4 (Dashboard) is ~60% done.
+
+### R3 — Analyzer & Knowledge Graph (core gaps)
+
+- [ ] **Failure classifier** — `service/src/aag/analyzer/classifier.py` is a stub returning None.
+      Needs to load run+events+diffs, run every rule, merge symptoms, pick highest-confidence failure mode.
+- [ ] **Analyzer rules** — all four rule files are empty:
+  - `rules/schema_change.py` — scan diffs for schema field additions
+  - `rules/missing_migration.py` — detect missing migration when schema_change fires
+  - `rules/missing_test.py` — detect code changes without corresponding test changes
+  - `rules/frontend_drift.py` — detect backend type changes without frontend regen
+- [ ] **Entity extractor** — `analyzer/extractor.py` is empty. Needs to pull Files, Components,
+      ChangePatterns from run events.
+- [ ] **Graph writer orchestrator** — `upsert_node()` and `upsert_edge()` helpers exist, but no
+      top-level pipeline that ties classifier output into graph construction.
+- [ ] **Preflight traversal** — `graph/traversal.py` returns an empty response. Needs ANN vector
+      search + 2-hop CTE over graph edges.
+- [ ] **Finalizer wiring** — `workers/finalizer.py` is a no-op. Needs to chain
+      classifier → graph writer → embeddings on run completion. Hook point in the outcome
+      route exists but isn't connected.
+- [ ] **Embedding write path** — stub provider works, but `embeddings.write_for()` isn't called
+      from anywhere yet.
+- [ ] **Graph API routes** — `GET /v1/graph/nodes` and `GET /v1/graph/edges` are in the OpenAPI
+      spec but have no route handlers.
+- [ ] **Graph seeder** — `scripts/seed.py` only health-checks. Needs to create ~5 synthetic runs
+      covering distinct failure modes.
+
+### R4 — Dashboard
+
+- [ ] **Graph visualization** — `/graph` page is a placeholder. Needs Cytoscape.js or react-flow
+      rendering nodes/edges with filtering by FailureMode, Component, ChangePattern.
+- [ ] **Live SSE updates** — SSE client infra exists in `src/lib/sse.ts` but isn't wired into
+      any page.
+- [ ] **Preflight warning panel** — referenced in architecture docs but not built in the dashboard.
+
+### Plugin
+
+- [ ] **Task enrichment** — `onToolBefore` posts an empty task string; should include the latest
+      user message from the SDK client.
+
+### Tests
+
+- [ ] Only one test exists (`test_health.py`). No coverage for ingestion, routes, analyzer, or graph.
+
 ## Demo loop
 
 `docs/demo-script.md` contains the exact commands. Summary:
