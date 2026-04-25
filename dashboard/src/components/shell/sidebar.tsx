@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Activity,
+  ArrowLeftRight,
   Network,
   ShieldCheck,
   Sparkles,
@@ -16,6 +17,7 @@ const navItems = [
   { href: "/", label: "Runs", icon: Activity, match: (p: string) => p === "/" || p.startsWith("/runs") },
   { href: "/graph", label: "Failure Graph", icon: Network, match: (p: string) => p.startsWith("/graph") },
   { href: "/preflight", label: "Preflight", icon: ShieldCheck, match: (p: string) => p.startsWith("/preflight") },
+  { href: "/compare", label: "Compare", icon: ArrowLeftRight, match: (p: string) => p.startsWith("/compare") },
 ] as const
 
 export function Sidebar() {
