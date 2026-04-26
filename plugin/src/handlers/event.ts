@@ -2,7 +2,7 @@ import { enqueue, flush } from "../batcher.ts"
 import { postFeedback, postOutcome, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
-import { FRUSTRATION_RE, markSessionFired } from "./frustration.ts"
+import { FRUSTRATION_RE, firedSessions, markSessionFired } from "./frustration.ts"
 
 // Bus events that add no autopsy signal but flood the timeline / DB.
 // Drop at the source so they never hit the network.
