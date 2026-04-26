@@ -24,19 +24,10 @@ type Props = {
 export function TimelineView({ run }: Props) {
   const grouped = React.useMemo(() => groupRunByAttempts(run), [run])
 
+  // Run identity is already announced by the run picker in the toolbar — don't
+  // repeat it here. Just leave a slim legend strip so colors are decodable.
   return (
-    <div className="flex h-full w-full flex-col gap-3 overflow-hidden p-4">
-      <header className="px-2">
-        <h2 className="text-sm font-semibold tracking-tight">
-          Timeline · run {run.run_id.slice(0, 8)}
-          {run.task ? <span className="text-muted-foreground"> — {run.task}</span> : null}
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          User messages drive the spine left → right. Each attempt shows preflight
-          findings, agent activity, and outcome.
-        </p>
-      </header>
-
+    <div className="flex h-full w-full flex-col gap-2 overflow-hidden p-3">
       <Legend />
 
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-xl border border-border bg-card/40">
@@ -82,9 +73,13 @@ function AttemptColumn({
   attempt: Attempt
   taskFallback: string | null
 }) {
-  const userText =
-    attempt.userMessage?.text ??
-    (taskFallback ? `Task: ${taskFallback}` : "Run started")
+  // First-attempt fallback: when the run has no captured user message yet
+  // (typically because the agent started before the message bus emitted it),
+  // show the task as an italicized stub instead of stamping `Task: <task>`
+  // verbatim — the latter renders identically across every column on a single
+  // task and reads as boilerplate noise.
+  const userText = attempt.userMessage?.text ?? null
+  const fallbackTask = userText ? null : taskFallback
   const userTs = attempt.userMessage?.ts ?? attempt.startTs
   const frustrated = attempt.userMessage?.frustrated === true
 
@@ -107,16 +102,19 @@ function AttemptColumn({
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           User · {attempt.index}
           {frustrated ? (
-            <span className="ml-1 text-destructive">·  frustrated</span>
+            <span className="ml-1 text-destructive">· frustrated</span>
           ) : null}
         </div>
         <div
           className={cn(
             "w-full max-w-full rounded-lg border bg-card/85 px-3 py-2 text-[13px] leading-snug",
+            "[overflow-wrap:anywhere] line-clamp-3",
             frustrated ? "border-destructive/40" : "border-border",
+            fallbackTask ? "italic text-muted-foreground" : "",
           )}
+          title={userText ?? fallbackTask ?? undefined}
         >
-          {userText}
+          {userText ?? fallbackTask ?? "Run started"}
         </div>
       </div>
 
@@ -131,9 +129,17 @@ function AttemptCard({ attempt }: { attempt: Attempt }) {
   const warned = attemptHadPreflightWarn(attempt)
   const tools = collapseToolCalls(attempt.toolCalls)
   const fileCount = attempt.fileEdits.length
+  const rejected = attempt.outcome.kind === "rejected"
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div
+      className={cn(
+        "overflow-hidden rounded-xl border bg-card shadow-sm transition-colors",
+        rejected
+          ? "border-destructive/45 ring-1 ring-destructive/30 shadow-destructive/10"
+          : "border-border",
+      )}
+    >
       {/* Preflight strip */}
       {hit ? (
         <div
@@ -207,18 +213,20 @@ function AttemptCard({ attempt }: { attempt: Attempt }) {
           </div>
         ) : (
           <ul className="space-y-1 font-mono text-[11.5px] text-muted-foreground/90">
-            {tools.slice(0, 6).map((t, i) => (
+            {tools.slice(0, 4).map((t, i) => (
               <li key={i} className="flex items-center gap-1.5">
                 <span className="text-primary/60">▸</span>
-                <span className="text-foreground/90">{t.tool}</span>
+                <span className="truncate text-foreground/90" title={t.tool}>
+                  {truncate(t.tool, 28)}
+                </span>
                 {t.count > 1 ? (
                   <span className="text-muted-foreground"> ×{t.count}</span>
                 ) : null}
               </li>
             ))}
-            {tools.length > 6 ? (
+            {tools.length > 4 ? (
               <li className="pl-3 text-[11px] text-muted-foreground">
-                +{tools.length - 6} more tool call{tools.length - 6 === 1 ? "" : "s"}
+                +{tools.length - 4} more tool call{tools.length - 4 === 1 ? "" : "s"}
               </li>
             ) : null}
             {fileCount > 0 ? (
@@ -247,14 +255,27 @@ function OutcomeFooter({
 }) {
   const o = attempt.outcome
   if (o.kind === "rejected") {
+    const tail = o.reason || "user pushed back"
+    const fullDetail = `${o.failureMode ? `${o.failureMode}: ` : ""}${tail}`
     return (
-      <div className="flex items-start gap-2 bg-destructive/15 px-3 py-2 text-[12.5px] font-semibold text-red-300">
-        <X className="mt-0.5 h-3.5 w-3.5" />
-        <span>rejected</span>
-        <span className="ml-1 truncate font-normal text-muted-foreground">
-          — {o.failureMode ? `${o.failureMode}: ` : ""}
-          {o.reason || "user pushed back"}
-        </span>
+      <div
+        className="flex items-start gap-2 bg-destructive/20 px-3 py-2 text-[12.5px] text-red-200"
+        title={fullDetail}
+      >
+        <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-300" />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold uppercase tracking-wider text-[10.5px] text-red-300">
+            rejected
+            {o.failureMode ? (
+              <span className="ml-1.5 rounded bg-destructive/30 px-1.5 py-0.5 font-mono text-[9.5px] normal-case tracking-normal text-red-100">
+                {truncate(o.failureMode, 22)}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-red-100/85 [overflow-wrap:anywhere]">
+            {tail}
+          </p>
+        </div>
       </div>
     )
   }
@@ -266,9 +287,11 @@ function OutcomeFooter({
       : "user moved on without rejecting"
     return (
       <div className="flex items-start gap-2 bg-emerald-500/12 px-3 py-2 text-[12.5px] font-semibold text-emerald-300">
-        <Check className="mt-0.5 h-3.5 w-3.5" />
+        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>approved</span>
-        <span className="ml-1 truncate font-normal text-muted-foreground">— {note}</span>
+        <span className="ml-1 truncate font-normal text-muted-foreground" title={note}>
+          — {note}
+        </span>
       </div>
     )
   }
@@ -298,6 +321,11 @@ function LegendDot({ color, label }: { color: string; label: string }) {
       {label}
     </span>
   )
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return ""
+  return s.length <= n ? s : s.slice(0, n - 1) + "…"
 }
 
 function formatTs(ts: number): string {
