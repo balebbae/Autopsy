@@ -3,7 +3,7 @@
 //   bun plugin/src/__smoke__/chat-message-frustration.smoke.ts
 // Exits 0 on success, 1 on failure. No test framework — keep it dumb.
 
-import { firedSessions } from "../handlers/frustration.ts"
+import { FRUSTRATION_RE, firedSessions } from "../handlers/frustration.ts"
 
 // ── Intercept network calls ────────────────────────────────────────
 // The handler calls postRejection / postFeedback / postEvents which
@@ -167,19 +167,86 @@ assert(
   `expected failure_mode=frustrated_user for subtle frustration, got ${rejSubtleBody.failure_mode}`,
 )
 
-// ── Test 7: other subtle patterns also match ──────────────────────
+// ── Test 7: broad pattern coverage ────────────────────────────────
+// Verify that FRUSTRATION_RE catches a wide range of frustration signals.
 
-const subtlePatterns = [
-  "not good",
-  "still broken",
-  "do it again",
-  "disappointed with the result",
-  "wasn't what i asked",
+const shouldMatch = [
+  // Profanity
+  "shit", "this is fucking broken", "wtf", "ffs", "damn it", "bullshit",
+  // Insults
+  "trash", "garbage", "useless", "pathetic", "incompetent", "ridiculous",
+  // Exasperation
+  "this sucks", "omg", "come on", "are you kidding", "unbelievable",
+  "seriously", "ugh", "bruh", "smh", "give me a break",
+  // Direct negative
+  "that's wrong", "this is broken", "not working", "still broken",
+  "doesn't work", "didn't work", "way off", "not even close",
+  "wasn't great", "not good", "not helpful", "missed the point",
+  // Blame
+  "you broke it", "you messed up", "what did you do", "what have you done",
+  "pay attention", "can you even read", "did you even look",
+  // Not what asked
+  "not what i asked", "i already said", "i literally told you",
+  "read the instructions", "follow instructions", "i didn't ask for that",
+  // Redo/revert
+  "redo this", "start over", "try again", "do it again", "undo this",
+  "revert it", "roll back", "change it back", "put it back",
+  // Stop
+  "don't do that", "stop it", "just stop", "cut it out", "enough already",
+  // Giving up
+  "forget it", "never mind", "i'll do it myself", "i give up",
+  "waste of time", "thanks for nothing",
+  // Worse than before
+  "worse than before", "even worse", "it was working before",
+  "you just made it worse", "regression",
+  // Repeated failure
+  "same mistake", "keeps happening", "you keep doing", "over and over",
+  "how many times", "already told you",
+  // Questioning ability
+  "how hard can it be", "it's not that hard", "this should be easy",
+  // Disappointment
+  "disappointed", "let down", "expected better", "what a mess",
+  // Hate
+  "hate this", "sick of this", "fed up", "frustrating", "annoying",
+  // Subtle compound
+  "that wasnt great can you try again make sure eveything works",
+  "no no no this is all wrong",
+  "i already told you to do it differently",
+  "this is a waste of my time",
+  "it was fine before you changed it",
 ]
-for (const pattern of subtlePatterns) {
+
+for (const phrase of shouldMatch) {
   assert(
-    /\b(wasn'?t\s+(great|good|right|correct|helpful|what\s+i)|not\s+(great|good|helpful|impressed|happy|satisfied)|try\s+again|do\s+(it|this|that)\s+(again|over)|disappointed|still\s+(wrong|broken|bad|not))\b/i.test(pattern),
-    `expected subtle pattern to match: "${pattern}"`,
+    FRUSTRATION_RE.test(phrase),
+    `expected FRUSTRATION_RE to match: "${phrase}"`,
+  )
+}
+
+// ── Test 8: neutral / instructional messages should NOT match ──────
+
+const shouldNotMatch = [
+  "please add a login page",
+  "can you refactor the database module",
+  "update the README with instructions",
+  "fix the bug in auth.ts line 42",
+  "what does this function do",
+  "run the tests",
+  "looks good to me",
+  "thanks that works perfectly",
+  "great job",
+  "nice work on that feature",
+  "can you explain how this works",
+  "add error handling to the API",
+  "deploy to staging",
+  "merge this into main",
+  "create a new component for the sidebar",
+]
+
+for (const phrase of shouldNotMatch) {
+  assert(
+    !FRUSTRATION_RE.test(phrase),
+    `expected FRUSTRATION_RE NOT to match neutral phrase: "${phrase}"`,
   )
 }
 
