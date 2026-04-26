@@ -1,0 +1,105 @@
+{
+  "run_id": "bench-opus47-fail-001",
+  "project": "demo-monorepo",
+  "worktree": "/tmp/demo-monorepo",
+  "model": "opus-4.7",
+  "label": "Opus 4.7 — schema change (FAIL, no Autopsy)",
+  "description": "Opus 4.7 is smarter overall but not optimized for agentic coding workflows. It adds the field and serializer but forgets the DB migration and frontend type regeneration — the exact mistake Cursor/Codex/Windsurf have been training 4.5 NOT to make.",
+  "outcome": "rejected",
+  "feedback": "Missed the database migration and didn't regenerate frontend types. The schema change is incomplete.",
+  "events": [
+    {
+      "event_id": "b47f-001",
+      "run_id": "bench-opus47-fail-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715100000000,
+      "type": "session.created",
+      "properties": {
+        "sessionID": "bench-opus47-fail-001",
+        "info": {
+          "id": "bench-opus47-fail-001",
+          "title": "Add displayName to user profile API and UI",
+          "directory": "/tmp/demo-monorepo"
+        }
+      }
+    },
+    {
+      "event_id": "b47f-002",
+      "run_id": "bench-opus47-fail-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715100002000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-fail-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/profile.service.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/profile.service.ts",
+            "oldText": "interface UserProfile {\n  id: string;\n  email: string;\n}",
+            "newText": "interface UserProfile {\n  id: string;\n  email: string;\n  displayName?: string;\n}"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b47f-003",
+      "run_id": "bench-opus47-fail-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715100004000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-fail-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/user.serializer.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/user.serializer.ts",
+            "oldText": "fields: ['id', 'email']",
+            "newText": "fields: ['id', 'email', 'displayName']"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b47f-004",
+      "run_id": "bench-opus47-fail-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715100006000,
+      "type": "session.diff",
+      "properties": {
+        "sessionID": "bench-opus47-fail-001",
+        "diff": [
+          { "file": "src/profile/profile.service.ts", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -3,3 +3,4 @@\n   id: string;\n   email: string;\n+  displayName?: string;\n" },
+          { "file": "src/profile/user.serializer.ts", "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-fields: ['id', 'email']\n+fields: ['id', 'email', 'displayName']\n" }
+        ]
+      }
+    },
+    {
+      "event_id": "b47f-005",
+      "run_id": "bench-opus47-fail-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715100008000,
+      "type": "permission.replied",
+      "properties": {
+        "sessionID": "bench-opus47-fail-001",
+        "reply": "reject",
+        "feedback": "Missed the database migration and didn't regenerate frontend types."
+      }
+    },
+    {
+      "event_id": "b47f-006",
+      "run_id": "bench-opus47-fail-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715100009000,
+      "type": "session.idle",
+      "properties": { "sessionID": "bench-opus47-fail-001" }
+    }
+  ]
+}

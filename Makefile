@@ -10,7 +10,8 @@ COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo 'docker compos
         service-install service-dev service-test service-lint \
         plugin-install plugin-link plugin-unlink \
         dashboard-install dashboard-dev \
-        seed replay reindex clean
+        seed replay reindex clean \
+        demo-benchmark demo-benchmark-quick demo-sweep
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-20s %s\n", $$1, $$2}'
@@ -95,6 +96,15 @@ demo-prep: ## Boot postgres, seed the graph, and verify the closed loop end-to-e
 
 reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
 	cd service && uv run python ../scripts/reindex.py
+
+demo-benchmark: ## Run Opus 4.5 vs 4.7 vs 4.7+Autopsy demo benchmark (seeds graph first)
+	cd service && uv run python ../scripts/demo-benchmark.py
+
+demo-benchmark-quick: ## Same benchmark, skip seeding (graph must already be warm)
+	cd service && uv run python ../scripts/demo-benchmark.py --quick
+
+demo-sweep: ## Fire repeated prompts through preflight to demo retrieval consistency
+	cd service && uv run python ../scripts/demo-benchmark.py --sweep
 
 # --- autopsy.surf landing -------------------------------------------------
 

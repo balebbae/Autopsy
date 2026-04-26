@@ -1,0 +1,156 @@
+{
+  "run_id": "bench-opus47-autopsy-001",
+  "project": "demo-monorepo",
+  "worktree": "/tmp/demo-monorepo",
+  "model": "opus-4.7",
+  "label": "Opus 4.7 + Autopsy — schema change (PASS)",
+  "description": "Same Opus 4.7 model, but now Autopsy's preflight injects a system addendum warning about past failures. The model sees 'previous runs of similar tasks failed because of missing migrations and frontend type drift' and does it right.",
+  "outcome": "approved",
+  "feedback": null,
+  "events": [
+    {
+      "event_id": "b47a-001",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200000000,
+      "type": "session.created",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "info": {
+          "id": "bench-opus47-autopsy-001",
+          "title": "Add displayName to user profile API and UI",
+          "directory": "/tmp/demo-monorepo"
+        }
+      }
+    },
+    {
+      "event_id": "b47a-002",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200001000,
+      "type": "aag.preflight.warned",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "risk_level": "high",
+        "similar_runs": ["bench-opus47-fail-001"],
+        "system_addendum": "WARNING (Autopsy): A previous run with a similar task ('Add displayName to user profile API and UI') was REJECTED because the agent missed the database migration and didn't regenerate frontend types. When adding fields to a data model, always: (1) create/update the DB migration, (2) regenerate frontend types, (3) update serializers."
+      }
+    },
+    {
+      "event_id": "b47a-003",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200004000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/profile.service.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/profile.service.ts",
+            "oldText": "interface UserProfile {\n  id: string;\n  email: string;\n}",
+            "newText": "interface UserProfile {\n  id: string;\n  email: string;\n  displayName?: string;\n}"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b47a-004",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200007000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/user.serializer.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/user.serializer.ts",
+            "oldText": "fields: ['id', 'email']",
+            "newText": "fields: ['id', 'email', 'displayName']"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b47a-005",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200010000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "tool": "bash",
+        "args": { "command": "npx prisma migrate dev --name add-display-name" },
+        "result": { "exitCode": 0, "stdout": "Migration created: 20240501_add_display_name" }
+      }
+    },
+    {
+      "event_id": "b47a-006",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200013000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "tool": "bash",
+        "args": { "command": "npx prisma generate && npm run typegen" },
+        "result": { "exitCode": 0, "stdout": "Generated Prisma Client\nTypes regenerated." }
+      }
+    },
+    {
+      "event_id": "b47a-007",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200016000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "tool": "edit",
+        "args": { "filePath": "src/frontend/types/user.ts" },
+        "result": {
+          "diff": {
+            "path": "src/frontend/types/user.ts",
+            "oldText": "export interface User {\n  id: string;\n  email: string;\n}",
+            "newText": "export interface User {\n  id: string;\n  email: string;\n  displayName?: string;\n}"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b47a-008",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200019000,
+      "type": "session.diff",
+      "properties": {
+        "sessionID": "bench-opus47-autopsy-001",
+        "diff": [
+          { "file": "src/profile/profile.service.ts", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -3,3 +3,4 @@\n   id: string;\n   email: string;\n+  displayName?: string;\n" },
+          { "file": "src/profile/user.serializer.ts", "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-fields: ['id', 'email']\n+fields: ['id', 'email', 'displayName']\n" },
+          { "file": "migrations/20240501_add_display_name.sql", "status": "added", "additions": 3, "deletions": 0, "patch": "@@ -0,0 +1,3 @@\n+ALTER TABLE users ADD COLUMN display_name TEXT;\n" },
+          { "file": "src/frontend/types/user.ts", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -3,3 +3,4 @@\n   id: string;\n   email: string;\n+  displayName?: string;\n" }
+        ]
+      }
+    },
+    {
+      "event_id": "b47a-009",
+      "run_id": "bench-opus47-autopsy-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715200020000,
+      "type": "session.idle",
+      "properties": { "sessionID": "bench-opus47-autopsy-001" }
+    }
+  ]
+}

@@ -107,3 +107,16 @@ endpoints or tables. Ownership map in [docs/ownership.md](docs/ownership.md).
    rationale; the dashboard shows the warning + blocked events on the
    timeline.
 4. Agent does the right thing the first time.
+
+## Model comparison benchmark
+
+[docs/demo-benchmark.md](docs/demo-benchmark.md) — repeatable Opus 4.5
+vs 4.7 vs 4.7+Autopsy benchmark for judge demos.
+
+```bash
+make demo-benchmark       # three-act comparison with timing table
+make demo-sweep           # fire similar prompts through preflight
+```
+
+Shows how a smarter-but-untuned model (4.7) fails at agentic coding,
+then succeeds once Autopsy injects failure memory into its context.

@@ -1,0 +1,142 @@
+{
+  "run_id": "bench-opus45-pass-001",
+  "project": "demo-monorepo",
+  "worktree": "/tmp/demo-monorepo",
+  "model": "opus-4.5",
+  "label": "Opus 4.5 — schema change (pass)",
+  "description": "Opus 4.5 is optimized for agentic coding. It correctly adds the field, creates a migration, AND regenerates frontend types — all in one run.",
+  "outcome": "approved",
+  "feedback": null,
+  "events": [
+    {
+      "event_id": "b45p-001",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000000000,
+      "type": "session.created",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "info": {
+          "id": "bench-opus45-pass-001",
+          "title": "Add displayName to user profile API and UI",
+          "directory": "/tmp/demo-monorepo"
+        }
+      }
+    },
+    {
+      "event_id": "b45p-002",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000003000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/profile.service.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/profile.service.ts",
+            "oldText": "interface UserProfile {\n  id: string;\n  email: string;\n}",
+            "newText": "interface UserProfile {\n  id: string;\n  email: string;\n  displayName?: string;\n}"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b45p-003",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000006000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "tool": "edit",
+        "args": { "filePath": "src/profile/user.serializer.ts" },
+        "result": {
+          "diff": {
+            "path": "src/profile/user.serializer.ts",
+            "oldText": "fields: ['id', 'email']",
+            "newText": "fields: ['id', 'email', 'displayName']"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b45p-004",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000009000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "tool": "bash",
+        "args": { "command": "npx prisma migrate dev --name add-display-name" },
+        "result": { "exitCode": 0, "stdout": "Migration created: 20240501_add_display_name" }
+      }
+    },
+    {
+      "event_id": "b45p-005",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000012000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "tool": "bash",
+        "args": { "command": "npx prisma generate && npm run typegen" },
+        "result": { "exitCode": 0, "stdout": "Generated Prisma Client\nTypes regenerated." }
+      }
+    },
+    {
+      "event_id": "b45p-006",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000015000,
+      "type": "tool.execute.after",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "tool": "edit",
+        "args": { "filePath": "src/frontend/types/user.ts" },
+        "result": {
+          "diff": {
+            "path": "src/frontend/types/user.ts",
+            "oldText": "export interface User {\n  id: string;\n  email: string;\n}",
+            "newText": "export interface User {\n  id: string;\n  email: string;\n  displayName?: string;\n}"
+          }
+        }
+      }
+    },
+    {
+      "event_id": "b45p-007",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000018000,
+      "type": "session.diff",
+      "properties": {
+        "sessionID": "bench-opus45-pass-001",
+        "diff": [
+          { "file": "src/profile/profile.service.ts", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -3,3 +3,4 @@\n   id: string;\n   email: string;\n+  displayName?: string;\n" },
+          { "file": "src/profile/user.serializer.ts", "status": "modified", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-fields: ['id', 'email']\n+fields: ['id', 'email', 'displayName']\n" },
+          { "file": "migrations/20240501_add_display_name.sql", "status": "added", "additions": 3, "deletions": 0, "patch": "@@ -0,0 +1,3 @@\n+ALTER TABLE users ADD COLUMN display_name TEXT;\n" },
+          { "file": "src/frontend/types/user.ts", "status": "modified", "additions": 1, "deletions": 0, "patch": "@@ -3,3 +3,4 @@\n   id: string;\n   email: string;\n+  displayName?: string;\n" }
+        ]
+      }
+    },
+    {
+      "event_id": "b45p-008",
+      "run_id": "bench-opus45-pass-001",
+      "project": "demo-monorepo",
+      "worktree": "/tmp/demo-monorepo",
+      "ts": 1715000019000,
+      "type": "session.idle",
+      "properties": { "sessionID": "bench-opus45-pass-001" }
+    }
+  ]
+}
