@@ -2,6 +2,7 @@ import { enqueue, flush } from "../batcher.ts"
 import { postFeedback, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
+import { FRUSTRATION_RE, markSessionFired } from "./frustration.ts"
 
 // Bus events that add no autopsy signal but flood the timeline / DB.
 // Drop at the source so they never hit the network.
@@ -64,26 +65,8 @@ const markPermissionFired = (key: string): boolean => {
   return true
 }
 
-// Words / phrases that strongly signal the user is unhappy with the
-// agent's last action. Kept intentionally aggressive — we only fire once
-// per session so false positives are bounded.
-const FRUSTRATION_RE =
-  /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said)|that('?s| is)\s+(bad|wrong|broken|not\s+right|incorrect)|wh(y|at the hell|at the heck)\s+(did|are|is|would)\s+you|you\s+(broke|messed\s+up|ruined|fucked\s+up|screwed\s+up)|undo\s+(this|that|it)|revert\s+(this|that|it)|don'?t\s+do\s+that|do\s+not\s+do\s+that|stop\s+(it|that)|never\s+(do|did)\s+that|that('?s| is)\s+not\s+what|hate\s+(this|that|it))\b/i
-
-// Track sessions where we already fired a frustration rejection so we
-// don't spam. Bounded LRU (same shape as `sessionsWithDiff` /
-// `firedPermissions`) so long-running plugin processes don't leak.
-const FIRED_SESSIONS_LIMIT = 1024
-const firedSessions = new Set<string>()
-const markSessionFired = (runId: string): boolean => {
-  if (firedSessions.has(runId)) return false
-  firedSessions.add(runId)
-  if (firedSessions.size > FIRED_SESSIONS_LIMIT) {
-    const oldest = firedSessions.values().next().value
-    if (oldest !== undefined) firedSessions.delete(oldest)
-  }
-  return true
-}
+// FRUSTRATION_RE and markSessionFired are imported from ./frustration.ts
+// so the firedSessions dedup set is shared with the chat-message handler.
 
 // Lightweight typing for the slice of the opencode SDK client we use here.
 // Avoids importing the full SDK types into the plugin build graph.

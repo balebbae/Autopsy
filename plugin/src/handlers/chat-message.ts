@@ -1,6 +1,8 @@
-import { enqueue } from "../batcher.ts"
+import { enqueue, flush } from "../batcher.ts"
+import { postFeedback, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
+import { FRUSTRATION_RE, markSessionFired } from "./frustration.ts"
 
 // `chat.message` fires every time a user sends a message in opencode. It is
 // the most reliable signal for capturing user intent (no event-shape probing).
@@ -54,7 +56,7 @@ export const onChatMessage = async (
   setLatestUserMessage(text)
 
   // Emit a synthetic event so the service can refresh runs.task.
-  const ev: EventIn = {
+  const taskEv: EventIn = {
     run_id: runId,
     project: ctx.project?.id,
     worktree: ctx.worktree,
@@ -66,5 +68,29 @@ export const onChatMessage = async (
       force: false,
     },
   }
-  enqueue(ev)
+  enqueue(taskEv)
+
+  // Emit a chat.message event so the service-side classifier can
+  // analyze user messages for sentiment via ctx.user_messages.
+  const chatEv: EventIn = {
+    run_id: runId,
+    project: ctx.project?.id,
+    worktree: ctx.worktree,
+    ts: Date.now(),
+    type: "chat.message",
+    properties: { sessionID: runId, role: "user", text },
+  }
+  enqueue(chatEv)
+
+  // Frustration detection: file a rejection once per session when the
+  // user's message matches known frustration patterns.
+  if (FRUSTRATION_RE.test(text) && markSessionFired(runId)) {
+    const snippet = text.slice(0, 300)
+    await flush()
+    await postRejection(runId, {
+      reason: snippet,
+      failure_mode: "frustrated_user",
+    })
+    await postFeedback(runId, snippet)
+  }
 }
