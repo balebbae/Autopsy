@@ -33,6 +33,9 @@ const eventLabel: Record<string, string> = {
   "permission.replied": "Permission replied",
   "message.part.updated": "Message updated",
   "chat.message": "Message",
+  "aag.preflight.warned": "Preflight warning",
+  "aag.preflight.blocked": "Preflight blocked tool",
+  "aag.system.injected": "Autopsy injected guidance",
   "aag.postflight.started": "Post-flight checks started",
   "aag.postflight.completed": "Post-flight checks completed",
 }
@@ -292,6 +295,9 @@ function severityForEvent(e: Mergeable): Severity {
   ) {
     return "rejection"
   }
+  if (e.type === "aag.preflight.blocked") {
+    return "rejection"
+  }
   if (
     e.type === "chat.message" &&
     (e.properties as { frustrated?: boolean } | undefined)?.frustrated === true
@@ -440,6 +446,24 @@ function summariseEvent(e: Mergeable): string | null {
         .slice(0, 3)
         .join(", ")
       return `${failed.length}/${results.length} failed${names ? ` · ${names}` : ""}`
+    }
+    case "aag.preflight.warned": {
+      const risk = p.risk_level as string | undefined
+      const tool = p.tool as string | undefined
+      const parts = [risk && `risk: ${risk}`, tool && `tool: ${tool}`].filter(Boolean)
+      return parts.length ? parts.join(" · ") : null
+    }
+    case "aag.preflight.blocked": {
+      const tool = p.tool as string | undefined
+      const reason = p.rationale as string | undefined
+      if (reason) return truncateForRow(reason)
+      return tool ? `blocked ${tool}` : "tool call blocked"
+    }
+    case "aag.system.injected": {
+      const risk = p.risk_level as string | undefined
+      const runs = p.similar_runs as string[] | undefined
+      const parts = [risk && `risk: ${risk}`, runs?.length && `${runs.length} similar run${runs.length === 1 ? "" : "s"}`].filter(Boolean)
+      return parts.length ? parts.join(" · ") : "system addendum injected"
     }
     default:
       return null

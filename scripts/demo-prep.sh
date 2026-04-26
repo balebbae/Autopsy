@@ -35,28 +35,34 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
-# Read OPENAI_API_KEY from the env or .env (env wins). We don't echo the value.
+# Read API keys from the env or .env (env wins). We don't echo values.
+GEMINI_KEY="${GEMINI_API_KEY:-}"
+if [ -z "$GEMINI_KEY" ] && grep -qE '^GEMINI_API_KEY=.+' .env; then
+  GEMINI_KEY="$(grep -E '^GEMINI_API_KEY=' .env | head -1 | cut -d= -f2-)"
+fi
 OPENAI_KEY="${OPENAI_API_KEY:-}"
 if [ -z "$OPENAI_KEY" ] && grep -qE '^OPENAI_API_KEY=.+' .env; then
   OPENAI_KEY="$(grep -E '^OPENAI_API_KEY=' .env | head -1 | cut -d= -f2-)"
 fi
 
 # Decide which provider is actually viable on this box.
+# Priority: gemini (free, same key as Gemma classifier) > openai > local > stub.
 PROVIDER="stub"
-if [ -n "$OPENAI_KEY" ]; then
+if [ -n "$GEMINI_KEY" ]; then
+  PROVIDER="gemini"
+elif [ -n "$OPENAI_KEY" ]; then
   PROVIDER="openai"
 elif [ -d "service/.venv" ] && service/.venv/bin/python -c 'import sentence_transformers' 2>/dev/null; then
   PROVIDER="local"
 fi
 log "embedding provider: $PROVIDER"
 case "$PROVIDER" in
-  openai) okay "OPENAI_API_KEY present — using hosted embeddings (richest signal)" ;;
+  gemini) okay "GEMINI_API_KEY present — using Google text-embedding-004 (768-d, free tier)" ;;
+  openai) okay "OPENAI_API_KEY present — using hosted OpenAI embeddings" ;;
   local)  okay "sentence-transformers installed — using local embeddings" ;;
   stub)
-    warn "no OPENAI_API_KEY and no sentence-transformers — falling back to deterministic stub."
-    warn "preflight will only fire on byte-identical prompts. Install with:"
-    warn "  cd service && uv sync --extra ml      # ~2GB"
-    warn "or set OPENAI_API_KEY in .env to upgrade."
+    warn "no GEMINI_API_KEY and no OPENAI_API_KEY and no sentence-transformers — falling back to deterministic stub."
+    warn "preflight will only fire on byte-identical prompts. Set GEMINI_API_KEY in .env to upgrade (free)."
     ;;
 esac
 

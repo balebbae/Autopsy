@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Vector dim per provider. The embeddings.vector column is sized from this at
 # table-creation time, so flipping providers without `make embed-reset` will
 # fail at insert. db.verify_vector_dim() catches the mismatch at startup.
-PROVIDER_DIM: dict[str, int] = {"stub": 384, "local": 384, "openai": 1536}
+PROVIDER_DIM: dict[str, int] = {"stub": 384, "local": 384, "openai": 1536, "gemini": 768}
 
 
 class Settings(BaseSettings):
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://aag:aag@localhost:5432/aag"
 
     # Embeddings. Dim is derived from provider via the property below.
-    embed_provider: Literal["stub", "local", "openai"] = "stub"
+    embed_provider: Literal["stub", "local", "openai", "gemini"] = "stub"
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # Optional API keys
@@ -56,9 +56,11 @@ class Settings(BaseSettings):
 
     # Preflight blocking (Phase 3): if set, ``tool.execute.before`` is
     # allowed to abort the tool when the top FailureMode score (after
-    # dampening) exceeds this threshold. Default ``None`` = warnings only,
-    # which matches the current safe default. Production opt-in.
-    preflight_block_threshold: float | None = None
+    # dampening) exceeds this threshold.  Default 3.0 blocks only when 3+
+    # rejected runs converge on the same FailureMode — a strong signal.
+    # Set to ``None`` (or leave PREFLIGHT_BLOCK_THRESHOLD unset) to
+    # restore warnings-only mode.
+    preflight_block_threshold: float | None = 3.0
 
     # In-process TTL cache for preflight responses (project + task hash).
     # 5 minutes is short enough to pick up new graph data quickly while
@@ -101,6 +103,7 @@ def get_settings() -> Settings:
     if settings.embed_provider == "stub" and "pytest" not in sys.modules:
         logging.getLogger(__name__).warning(
             "EMBED_PROVIDER=stub: retrieval will only match exact strings. "
-            "Set EMBED_PROVIDER=local for semantic similarity."
+            "Set EMBED_PROVIDER=gemini (recommended, free) or =local for "
+            "semantic similarity."
         )
     return settings
