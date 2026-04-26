@@ -6,11 +6,13 @@ final hours.
 ## Setup (once)
 
 ```bash
-cp .env.example .env
-make compose-up
-make service-install
-make dashboard-install
+make demo-prep            # boots postgres, picks the right embedding provider,
+                          # syncs deps, seeds the graph, and verifies the
+                          # closed loop end-to-end.
+make dashboard-install    # one-time npm install for the dashboard.
 ```
+
+`make demo-prep` is idempotent — re-run any time. By default it picks `EMBED_PROVIDER=stub` (deterministic hash, byte-identical-only retrieval). For real semantic similarity in the demo flow below, either set `OPENAI_API_KEY` in `.env` (preferred) or run `cd service && uv sync --extra ml` and re-run `make demo-prep`, which will auto-promote you to `local` (sentence-transformers).
 
 ## Run the demo
 
@@ -34,8 +36,9 @@ make dashboard-dev
 
 ```bash
 make plugin-link
-make seed                # pre-populate graph with synthetic failures (R3)
 opencode                 # requires opencode installed (https://opencode.ai/docs/)
+                         # graph is already seeded by `make demo-prep`; re-run
+                         # `make seed` only if you've reset the database.
 ```
 
 ## The flow

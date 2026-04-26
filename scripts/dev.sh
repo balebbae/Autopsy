@@ -11,7 +11,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-COMPOSE="docker-compose -f infra/docker-compose.yml"
+# Pick docker compose v2 (`docker compose`) when present, else fall back to the
+# legacy v1 binary (`docker-compose`). Most modern Docker installs only ship v2.
+if docker compose version >/dev/null 2>&1; then
+  DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DOCKER_COMPOSE="docker-compose"
+else
+  echo "neither 'docker compose' (v2 plugin) nor 'docker-compose' (v1) is available — install Docker Desktop or the compose plugin." >&2
+  exit 1
+fi
+COMPOSE="$DOCKER_COMPOSE -f infra/docker-compose.yml"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 gray() { printf '\033[2m%s\033[0m\n' "$1"; }

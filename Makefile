@@ -1,9 +1,11 @@
 # Agent Autopsy Graph — dev shortcuts.
 # All commands assume you run them from the repo root.
 
-COMPOSE := docker-compose -f infra/docker-compose.yml
+# Pick docker compose v2 (`docker compose`) when present, else fall back to the
+# legacy v1 binary (`docker-compose`). Most modern Docker installs only ship v2.
+COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo 'docker compose' || echo 'docker-compose') -f infra/docker-compose.yml
 
-.PHONY: help dev stop install \
+.PHONY: help dev stop install demo-prep \
         compose-up compose-down compose-logs db-reset embed-reset \
         service-install service-dev service-test service-lint \
         plugin-install plugin-link plugin-unlink \
@@ -87,6 +89,9 @@ replay: ## Replay a fixture run into POST /v1/events
 
 trace: ## Seed runs, then call /v1/preflight on each to verify the closed loop end-to-end
 	cd service && uv run python ../scripts/trace-preflight.py
+
+demo-prep: ## Boot postgres, seed the graph, and verify the closed loop end-to-end (uses scripts/demo-prep.sh)
+	bash scripts/demo-prep.sh
 
 reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
 	cd service && uv run python ../scripts/reindex.py
