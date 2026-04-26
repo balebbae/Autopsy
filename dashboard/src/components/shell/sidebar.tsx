@@ -7,7 +7,6 @@ import {
   Activity,
   BookOpen,
   Network,
-  ShieldCheck,
 } from "lucide-react"
 
 import { LogoMark } from "@/components/brand/logo-mark"
@@ -16,7 +15,6 @@ import { cn } from "@/lib/utils"
 const navItems = [
   { href: "/", label: "Runs", icon: Activity, match: (p: string) => p === "/" || p.startsWith("/runs") },
   { href: "/graph", label: "Failure Graph", icon: Network, match: (p: string) => p.startsWith("/graph") },
-  { href: "/preflight", label: "Preflight", icon: ShieldCheck, match: (p: string) => p.startsWith("/preflight") },
 ] as const
 
 export function Sidebar() {

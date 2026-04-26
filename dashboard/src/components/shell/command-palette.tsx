@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import useSWR from "swr"
-import { Activity, Moon, Network, ShieldCheck, Sun, Terminal } from "lucide-react"
+import { Activity, Moon, Network, Sun, Terminal } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import {
@@ -79,10 +79,6 @@ export function CommandPalette() {
             <CommandItem onSelect={() => go("/graph")}>
               <Network /> Failure Graph
               <CommandShortcut>g g</CommandShortcut>
-            </CommandItem>
-            <CommandItem onSelect={() => go("/preflight")}>
-              <ShieldCheck /> Preflight
-              <CommandShortcut>g p</CommandShortcut>
             </CommandItem>
           </CommandGroup>
           <CommandSeparator />
