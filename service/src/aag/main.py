@@ -69,12 +69,27 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# CORS — be explicit about dev origins so the dashboard's preflight OPTIONS
+# never gets rejected. ``allow_origins=["*"]`` combined with
+# ``allow_credentials=True`` is invalid per the CORS spec — browsers reject
+# the wildcard whenever credentials are sent, which has bitten us in the
+# past (the dashboard's `fetch(..., {credentials: 'include'})` paths just
+# silently fail). Spell out the local dev origins, and use
+# ``allow_origin_regex`` to keep the wildcard semantics for everything else.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten before any non-local deploy
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,
 )
 
 
