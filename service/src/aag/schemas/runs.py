@@ -51,6 +51,27 @@ class FailureCaseOut(BaseModel):
     summary: str | None = None
 
 
+class RejectionIn(BaseModel):
+    """Recorded by the plugin (or dashboard) when a failure is filed against
+    a still-active thread. Does NOT terminate the run."""
+
+    reason: str
+    failure_mode: str | None = None
+    symptoms: str | None = None
+    ts: int | None = None
+    source: Literal["plugin", "dashboard", "manual"] = "plugin"
+
+
+class RejectionOut(BaseModel):
+    id: int
+    run_id: str
+    ts: int
+    reason: str
+    failure_mode: str | None = None
+    symptoms: str | None = None
+    source: Literal["plugin", "dashboard", "manual"] = "plugin"
+
+
 class RunSummary(BaseModel):
     run_id: str
     project: str | None = None
@@ -60,6 +81,7 @@ class RunSummary(BaseModel):
     status: RunStatus
     task: str | None = None
     rejection_reason: str | None = None
+    rejection_count: int = 0
     files_touched: int = 0
     tool_calls: int = 0
 
@@ -68,3 +90,4 @@ class RunOut(RunSummary):
     events: list[EventIn] = Field(default_factory=list)
     diffs: list[DiffSnapshot] = Field(default_factory=list)
     failure_case: FailureCaseOut | None = None
+    rejections: list[RejectionOut] = Field(default_factory=list)

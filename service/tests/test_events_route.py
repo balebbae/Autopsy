@@ -289,8 +289,191 @@ async def test_post_events_creates_diff_artifact_from_session_diff() -> None:
         await dispose()
 
 
+async def test_post_events_persists_empty_session_diff() -> None:
+    """Empty ``session.diff`` arrays must still create a kind='diff' artifact.
+
+    opencode emits cumulative session.diff snapshots; an empty array after a
+    non-empty one means "all prior changes were reverted". If we drop the
+    empty snapshot, the dashboard's latest-snapshot view stays stuck on the
+    last non-empty diff and looks like edits never went away.
+    """
+    run_id = f"test-events-{uuid4().hex[:8]}"
+    t0 = int(time() * 1000)
+    t1 = t0 + 50
+    t2 = t1 + 50
+
+    diff_files = [
+        {
+            "file": "meow.html",
+            "status": "added",
+            "additions": 1,
+            "deletions": 0,
+            "patch": "@@ +1 @@\n+meow\n",
+        }
+    ]
+    body = {
+        "events": [
+            {
+                "event_id": f"{run_id}-evt-001",
+                "run_id": run_id,
+                "ts": t0,
+                "type": "session.created",
+                "properties": {
+                    "sessionID": run_id,
+                    "info": {"id": run_id, "title": "revert", "directory": "/tmp/x"},
+                },
+            },
+            {
+                "event_id": f"{run_id}-evt-002",
+                "run_id": run_id,
+                "ts": t1,
+                "type": "session.diff",
+                "properties": {"sessionID": run_id, "diff": diff_files},
+            },
+            {
+                "event_id": f"{run_id}-evt-003",
+                "run_id": run_id,
+                "ts": t2,
+                "type": "session.diff",
+                "properties": {"sessionID": run_id, "diff": []},
+            },
+        ]
+    }
+
+    try:
+        async with _async_client() as ac:
+            resp = await ac.post("/v1/events", json=body)
+        assert resp.status_code == 202
+
+        sm = sessionmaker()
+        async with sm() as session:
+            arts = (
+                (
+                    await session.execute(
+                        select(Artifact)
+                        .where(Artifact.run_id == run_id)
+                        .where(Artifact.kind == "diff")
+                        .order_by(Artifact.captured_at)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(arts) == 2
+            assert arts[0].content == {"files": diff_files}
+            assert arts[1].content == {"files": []}
+    finally:
+        await _delete_run(run_id)
+        await dispose()
+
+
 async def test_post_events_empty_batch() -> None:
     async with _async_client() as ac:
         resp = await ac.post("/v1/events", json={"events": []})
     assert resp.status_code == 202
     assert resp.json() == {"accepted": 0}
+
+
+async def test_permission_reject_does_not_terminate_run() -> None:
+    """``permission.replied=reject`` no longer flips status to ``rejected``.
+
+    The plugin files a rejection via POST /v1/runs/:id/rejections; the
+    assembler should leave the run as ``active`` so the thread keeps
+    streaming and the agent can recover.
+    """
+    run_id = f"test-events-{uuid4().hex[:8]}"
+    now = int(time() * 1000)
+    body = {
+        "events": [
+            {
+                "event_id": f"{run_id}-evt-001",
+                "run_id": run_id,
+                "ts": now,
+                "type": "session.created",
+                "properties": {"sessionID": run_id, "info": {"id": run_id}},
+            },
+            {
+                "event_id": f"{run_id}-evt-002",
+                "run_id": run_id,
+                "ts": now + 1000,
+                "type": "permission.replied",
+                "properties": {"sessionID": run_id, "reply": "reject"},
+            },
+        ]
+    }
+    try:
+        async with _async_client() as ac:
+            resp = await ac.post("/v1/events", json=body)
+        assert resp.status_code == 202
+        sm = sessionmaker()
+        async with sm() as session:
+            run = await session.get(Run, run_id)
+            assert run is not None
+            assert run.status == "active", "permission.reject must not end the run"
+            assert run.ended_at is None
+    finally:
+        await _delete_run(run_id)
+        await dispose()
+
+
+async def test_session_idle_then_activity_clears_ended_at() -> None:
+    """Idle sets ``ended_at``, but a subsequent non-idle event clears it.
+
+    Before this change, an idle marker would stick on an active run and the
+    dashboard would show "Ended Xs ago" while events kept streaming in.
+    """
+    run_id = f"test-events-{uuid4().hex[:8]}"
+    now = int(time() * 1000)
+    body = {
+        "events": [
+            {
+                "event_id": f"{run_id}-evt-001",
+                "run_id": run_id,
+                "ts": now,
+                "type": "session.created",
+                "properties": {"sessionID": run_id, "info": {"id": run_id}},
+            },
+            {
+                "event_id": f"{run_id}-evt-002",
+                "run_id": run_id,
+                "ts": now + 500,
+                "type": "session.idle",
+                "properties": {"sessionID": run_id},
+            },
+        ]
+    }
+    try:
+        async with _async_client() as ac:
+            resp = await ac.post("/v1/events", json=body)
+        assert resp.status_code == 202
+        sm = sessionmaker()
+        async with sm() as session:
+            run = await session.get(Run, run_id)
+            assert run is not None
+            assert run.status == "active"
+            assert run.ended_at == now + 500
+
+        # Now drive a permission.asked event (non-idle activity).
+        body2 = {
+            "events": [
+                {
+                    "event_id": f"{run_id}-evt-003",
+                    "run_id": run_id,
+                    "ts": now + 1000,
+                    "type": "permission.asked",
+                    "properties": {"sessionID": run_id},
+                },
+            ]
+        }
+        async with _async_client() as ac:
+            resp = await ac.post("/v1/events", json=body2)
+        assert resp.status_code == 202
+
+        async with sm() as session:
+            run = await session.get(Run, run_id)
+            assert run is not None
+            assert run.status == "active"
+            assert run.ended_at is None, "non-idle activity should clear the stale idle marker"
+    finally:
+        await _delete_run(run_id)
+        await dispose()

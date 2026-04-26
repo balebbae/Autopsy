@@ -21,6 +21,7 @@ class Run(Base):
     ended_at: Mapped[int | None] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    rejection_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     files_touched: Mapped[int] = mapped_column(Integer, default=0)
     tool_calls: Mapped[int] = mapped_column(Integer, default=0)
     summary: Mapped[str | None] = mapped_column(Text)
@@ -32,6 +33,9 @@ class Run(Base):
     )
     artifacts: Mapped[list["Artifact"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
+    )
+    rejections: Mapped[list["Rejection"]] = relationship(  # noqa: F821
+        back_populates="run", cascade="all, delete-orphan", order_by="Rejection.ts"
     )
 
 

@@ -31,6 +31,23 @@ export const postFeedback = (runId: string, feedback: string) =>
     body: JSON.stringify({ feedback, source: "plugin" }),
   }).catch(() => {})
 
+export type RejectionPayload = {
+  reason: string
+  failure_mode?: string
+  symptoms?: string
+  ts?: number
+}
+
+// File a rejection against a still-active run. Unlike `postOutcome("rejected")`,
+// this does NOT terminate the thread — the agent keeps going so it can recover
+// from the failure. The dashboard renders all rejections on the timeline.
+export const postRejection = (runId: string, body: RejectionPayload) =>
+  fetch(`${config.url}/v1/runs/${runId}/rejections`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ source: "plugin", ...body }),
+  }).catch(() => {})
+
 export const preflight = async (req: PreflightRequest): Promise<PreflightResponse | null> => {
   const r = await fetch(`${config.url}/v1/preflight`, {
     method: "POST",

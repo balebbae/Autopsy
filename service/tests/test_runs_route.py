@@ -23,7 +23,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aag.config import get_settings
 from aag.db import dispose, sessionmaker
 from aag.main import app
-from aag.models import Artifact, Embedding, FailureCase, GraphNode, Run, RunEvent
+from aag.models import (
+    Artifact,
+    Embedding,
+    FailureCase,
+    GraphNode,
+    Rejection,
+    Run,
+    RunEvent,
+)
 
 
 def _db_reachable() -> bool:
@@ -73,6 +81,7 @@ async def _cleanup_runs(run_ids: list[str]) -> None:
     async with sm() as session:
         for rid in run_ids:
             await session.execute(delete(Embedding).where(Embedding.entity_id.like(f"{rid}%")))
+            await session.execute(delete(Rejection).where(Rejection.run_id == rid))
             await session.execute(delete(FailureCase).where(FailureCase.run_id == rid))
             await session.execute(delete(GraphNode).where(GraphNode.id == f"Run:{rid}"))
             await session.execute(delete(Run).where(Run.run_id == rid))
@@ -360,3 +369,106 @@ async def test_post_feedback_updates_rejection_reason() -> None:
     finally:
         await _cleanup_runs([run_id])
         await dispose()
+
+
+async def test_post_rejection_records_row_and_keeps_run_active() -> None:
+    """Filing a rejection on an active run records it but does NOT terminate the thread."""
+    run_id = f"test-runs-rej-{uuid4().hex[:8]}"
+    sm = sessionmaker()
+    async with sm() as session:
+        await _insert_run(session, run_id=run_id, status="active")
+        await session.commit()
+
+    try:
+        async with _async_client() as ac:
+            resp = await ac.post(
+                f"/v1/runs/{run_id}/rejections",
+                json={
+                    "reason": "missed the migration",
+                    "failure_mode": "incomplete_schema_change",
+                    "symptoms": "missing_migration",
+                },
+            )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["run_id"] == run_id
+        assert body["reason"] == "missed the migration"
+        assert body["failure_mode"] == "incomplete_schema_change"
+        assert body["source"] == "plugin"
+        assert isinstance(body["id"], int)
+        assert body["ts"] > 0
+
+        sm = sessionmaker()
+        async with sm() as session:
+            run = await session.get(Run, run_id)
+            assert run is not None
+            # Crucially: the run is NOT terminated.
+            assert run.status == "active"
+            assert run.ended_at is None
+            assert run.rejection_count == 1
+            assert run.rejection_reason == "missed the migration"
+            rows = (
+                (await session.execute(select(Rejection).where(Rejection.run_id == run_id)))
+                .scalars()
+                .all()
+            )
+            assert len(rows) == 1
+    finally:
+        await _cleanup_runs([run_id])
+        await dispose()
+
+
+async def test_post_multiple_rejections_accumulates_without_ending_run() -> None:
+    """A thread can have many rejections filed against it; all are returned in order."""
+    run_id = f"test-runs-multirej-{uuid4().hex[:8]}"
+    sm = sessionmaker()
+    async with sm() as session:
+        await _insert_run(session, run_id=run_id, status="active")
+        await session.commit()
+
+    try:
+        async with _async_client() as ac:
+            for i in range(3):
+                resp = await ac.post(
+                    f"/v1/runs/{run_id}/rejections",
+                    json={"reason": f"failure #{i + 1}", "ts": 1_700_000_000_000 + i},
+                )
+                assert resp.status_code == 201
+
+            list_resp = await ac.get(f"/v1/runs/{run_id}/rejections")
+            assert list_resp.status_code == 200
+            rejections = list_resp.json()
+            assert len(rejections) == 3
+            assert [r["reason"] for r in rejections] == [
+                "failure #1",
+                "failure #2",
+                "failure #3",
+            ]
+
+            run_resp = await ac.get(f"/v1/runs/{run_id}")
+            assert run_resp.status_code == 200
+            run_body = run_resp.json()
+            assert run_body["status"] == "active"
+            assert run_body["rejection_count"] == 3
+            assert run_body["ended_at"] is None
+            assert len(run_body["rejections"]) == 3
+
+        sm = sessionmaker()
+        async with sm() as session:
+            run = await session.get(Run, run_id)
+            assert run is not None
+            assert run.status == "active"
+            assert run.rejection_count == 3
+            assert run.rejection_reason == "failure #3"
+    finally:
+        await _cleanup_runs([run_id])
+        await dispose()
+
+
+async def test_post_rejection_404_for_missing_run() -> None:
+    async with _async_client() as ac:
+        resp = await ac.post(
+            "/v1/runs/does-not-exist-zzz/rejections",
+            json={"reason": "x"},
+        )
+    assert resp.status_code == 404

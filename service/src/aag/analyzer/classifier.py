@@ -57,13 +57,24 @@ class RunContext:
 
 
 async def classify(
-    session: AsyncSession, run_id: str
+    session: AsyncSession,
+    run_id: str,
+    *,
+    force_rejected: bool = False,
+    rejection_reason_override: str | None = None,
 ) -> tuple[RunContext | None, FailureCaseOut | None]:
     run = await session.get(Run, run_id)
     if run is None:
         return None, None
 
     ctx = await _build_context(session, run)
+    if force_rejected:
+        # Used by the per-rejection finalizer: even if Run.status is still
+        # 'active' (because the thread continues after a rejection is filed),
+        # we want the rejection-aware codepaths in classify() to fire.
+        ctx.status = "rejected"
+    if rejection_reason_override:
+        ctx.rejection_reason = rejection_reason_override
 
     from aag.analyzer.rules import ALL_RULES, REJECTION_RULE
 

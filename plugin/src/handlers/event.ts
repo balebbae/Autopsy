@@ -1,5 +1,5 @@
-import { enqueue } from "../batcher.ts"
-import { postFeedback, postOutcome } from "../client.ts"
+import { enqueue, flush } from "../batcher.ts"
+import { postFeedback, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
 
@@ -22,11 +22,65 @@ const isEmptyDiff = (props: Record<string, unknown>) => {
   return false
 }
 
-const FRUSTRATION_RE =
-  /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said))\b/i
+// Per-session flag: whether we've already seen a non-empty diff. We use this
+// to suppress *initial* empty diffs (before any change has been made) but
+// allow empty diffs *after* a non-empty one through, because that signals
+// the user reverted all prior changes — which the dashboard needs to show.
+//
+// Bounded LRU so long-running opencode processes that touch many sessions
+// don't leak memory. 256 sessions is generous for any realistic workflow.
+const SESSIONS_WITH_DIFF_LIMIT = 256
+const sessionsWithDiff = new Set<string>()
+const markSessionWithDiff = (runId: string) => {
+  if (sessionsWithDiff.has(runId)) {
+    // Move to the most-recently-used end so the oldest is evicted first.
+    sessionsWithDiff.delete(runId)
+    sessionsWithDiff.add(runId)
+    return
+  }
+  sessionsWithDiff.add(runId)
+  if (sessionsWithDiff.size > SESSIONS_WITH_DIFF_LIMIT) {
+    const oldest = sessionsWithDiff.values().next().value
+    if (oldest !== undefined) sessionsWithDiff.delete(oldest)
+  }
+}
 
-// Track sessions where we already fired a frustration outcome so we don't spam.
+// Bounded LRU of `${sessionID}:${permissionID}` keys we've already filed
+// rejections for. opencode occasionally re-emits the same permission.replied
+// event (e.g. on reconnect or session.updated cascades); this dedupes them
+// so we don't spam the dashboard with duplicate rejection rows.
+const FIRED_PERMISSIONS_LIMIT = 1024
+const firedPermissions = new Set<string>()
+const markPermissionFired = (key: string): boolean => {
+  if (firedPermissions.has(key)) return false
+  firedPermissions.add(key)
+  if (firedPermissions.size > FIRED_PERMISSIONS_LIMIT) {
+    const oldest = firedPermissions.values().next().value
+    if (oldest !== undefined) firedPermissions.delete(oldest)
+  }
+  return true
+}
+
+// Words / phrases that strongly signal the user is unhappy with the
+// agent's last action. Kept intentionally aggressive — we only fire once
+// per session so false positives are bounded.
+const FRUSTRATION_RE =
+  /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said)|that('?s| is)\s+(bad|wrong|broken|not\s+right|incorrect)|wh(y|at the hell|at the heck)\s+(did|are|is|would)\s+you|you\s+(broke|messed\s+up|ruined|fucked\s+up|screwed\s+up)|undo\s+(this|that|it)|revert\s+(this|that|it)|don'?t\s+do\s+that|do\s+not\s+do\s+that|stop\s+(it|that)|never\s+(do|did)\s+that|that('?s| is)\s+not\s+what|hate\s+(this|that|it))\b/i
+
+// Track sessions where we already fired a frustration rejection so we
+// don't spam. Bounded LRU (same shape as `sessionsWithDiff` /
+// `firedPermissions`) so long-running plugin processes don't leak.
+const FIRED_SESSIONS_LIMIT = 1024
 const firedSessions = new Set<string>()
+const markSessionFired = (runId: string): boolean => {
+  if (firedSessions.has(runId)) return false
+  firedSessions.add(runId)
+  if (firedSessions.size > FIRED_SESSIONS_LIMIT) {
+    const oldest = firedSessions.values().next().value
+    if (oldest !== undefined) firedSessions.delete(oldest)
+  }
+  return true
+}
 
 // Entry for the `event` hook. opencode 1.x wraps the bus event in `{ event }`.
 // We never block on the network — fire-and-forget through the batcher.
@@ -47,11 +101,43 @@ export const onEvent = async (
   // --- Side-effects that must run BEFORE the noise filter ---
 
   if (e.type === "permission.replied" && props.reply === "reject") {
-    await postOutcome(runId, "rejected", props.feedback)
+    // Dedupe by permissionID *before* enqueueing so re-emitted events
+    // (opencode occasionally re-fires on reconnect / session.updated
+    // cascades) don't create duplicate event rows. The plugin doesn't set
+    // event_id, so the service's `(run_id, event_id)` dedup is a no-op
+    // for plugin events — we have to dedupe at the source. If opencode
+    // doesn't include a permissionID, fall back to the event timestamp
+    // so events in the same millisecond still collapse.
+    const permissionID =
+      (props as { permissionID?: string; id?: string }).permissionID ??
+      (props as { permissionID?: string; id?: string }).id ??
+      `ts:${Date.now()}`
+    if (!markPermissionFired(`${runId}:${permissionID}`)) return
+
+    // Persist the raw event *first* so the dashboard's timeline shows the
+    // "Permission rejected" row immediately. If we POST the rejection
+    // before flushing, the rejection record + classifier output land
+    // before the underlying event row exists, and the SSE-driven UI looks
+    // like nothing happened until the next refresh.
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: e.type,
+      properties: e.properties,
+    })
+    await flush()
+
+    await postRejection(runId, {
+      reason: props.feedback || "User denied a permission request.",
+      failure_mode: "user_permission_denied",
+    })
     if (props.feedback) await postFeedback(runId, props.feedback as string)
+    return // already enqueued; don't double-record below
   }
 
-  // Auto-detect frustrated user messages and trigger the rejection pipeline.
+  // Auto-detect frustrated user messages and file a rejection.
   // message.part.updated is in NOISY_TYPES (not persisted) but we still
   // scan it here. User text parts have type=text and no "time" field.
   if (
@@ -60,12 +146,31 @@ export const onEvent = async (
     !("time" in (props.part ?? {})) &&
     props.part?.text &&
     FRUSTRATION_RE.test(props.part.text) &&
-    !firedSessions.has(runId)
+    markSessionFired(runId)
   ) {
-    firedSessions.add(runId)
-    const snippet = props.part.text.slice(0, 300)
-    await postOutcome(runId, "rejected", snippet)
+    const text = props.part.text
+    const snippet = text.slice(0, 300)
+    // Same ordering: enqueue + flush before rejection POST so the user
+    // message row exists when the dashboard refreshes. We enqueue the
+    // full text (not the snippet) because that's what the regular
+    // message.part.updated handler below would have done — and we
+    // `return` after to skip that handler so we don't double-enqueue.
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: "chat.message",
+      properties: { sessionID: runId, role: "user", text: text.trim() },
+    })
+    await flush()
+    setLatestUserMessage(text)
+    await postRejection(runId, {
+      reason: snippet,
+      failure_mode: "frustrated_user",
+    })
     await postFeedback(runId, snippet)
+    return
   }
 
   // --- Noise filter: drop chatty events that add no signal ---
@@ -78,11 +183,50 @@ export const onEvent = async (
       props.part?.text?.trim() &&
       !("time" in (props.part ?? {}))
     if (!isUserText) return
+
+    // Normalize into a single, clean `chat.message` event so the timeline
+    // can render it as "User: ..." without sniffing nested shapes.
+    const text = props.part!.text!.trim()
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: "chat.message",
+      properties: { sessionID: runId, role: "user", text },
+    })
+    if (text) setLatestUserMessage(text)
+    return
   } else if (NOISY_TYPES.has(e.type)) {
     return
   }
 
-  if (e.type === "session.diff" && isEmptyDiff(e.properties ?? {})) return
+  // `message.created` carries the canonical role+content for both user
+  // and assistant turns when opencode emits it. Normalize it to the same
+  // `chat.message` event shape so the timeline has one renderer for both.
+  if (e.type === "message.created") {
+    const norm = normalizeMessageEvent(runId, e.properties ?? {})
+    if (norm) {
+      enqueue({
+        run_id: runId,
+        project: ctx.project?.id,
+        worktree: ctx.worktree,
+        ts: Date.now(),
+        type: "chat.message",
+        properties: norm,
+      })
+      if (norm.role === "user" && typeof norm.text === "string") {
+        setLatestUserMessage(norm.text)
+      }
+    }
+    return
+  }
+
+  if (e.type === "session.diff") {
+    const empty = isEmptyDiff(e.properties ?? {})
+    if (empty && !sessionsWithDiff.has(runId)) return
+    if (!empty) markSessionWithDiff(runId)
+  }
 
   const ev: EventIn = {
     run_id: runId,
@@ -154,6 +298,34 @@ function extractUserText(type: string, props: Record<string, unknown>): string |
     }
   }
 
+  return null
+}
+
+// Same shape coverage as `extractUserText` but emits a normalized
+// `chat.message` payload regardless of role. Returns null when we can't
+// confidently identify a role + non-empty text.
+function normalizeMessageEvent(
+  runId: string,
+  props: Record<string, unknown>,
+): { sessionID: string; role: "user" | "assistant"; text: string } | null {
+  const flatRole = asString(props["role"])
+  const flatText =
+    firstString(props["content"], props["text"]) ?? textFromParts(props["parts"])
+  if (flatRole && flatText) {
+    const role = flatRole === "user" ? "user" : "assistant"
+    return { sessionID: runId, role, text: flatText.trim() }
+  }
+  const inner = asRecord(props["message"])
+  if (inner) {
+    const role = asString(inner["role"])
+    const text =
+      firstString(inner["content"], inner["text"]) ??
+      textFromParts(inner["parts"])
+    if (role && text) {
+      const r = role === "user" ? "user" : "assistant"
+      return { sessionID: runId, role: r, text: text.trim() }
+    }
+  }
   return null
 }
 
