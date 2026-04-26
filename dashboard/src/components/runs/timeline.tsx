@@ -69,7 +69,7 @@ export function RunTimeline({
     // and produces a row between every turn. The classifier still sees it
     // via run_events; this is just a render-side filter.
     const filtered = all.filter((e) => e.type !== "session.idle")
-    filtered.sort((a, b) => a.ts - b.ts)
+    filtered.sort((a, b) => b.ts - a.ts)
 
     // Collapse runs of consecutive identical events (same type + identical
     // signature) into a single row tagged with the repeat count. Common
@@ -128,7 +128,7 @@ export function RunTimeline({
           No events recorded.
         </div>
       ) : (
-        <ol className="relative px-3 pt-2 pb-4">
+        <ol className="relative px-3 pt-2 pb-4 max-h-[600px] overflow-y-auto">
           <AnimatePresence initial={false}>
             {merged.map(({ event: e, repeat, lastTs }, idx) => {
               const key = e.event_id ?? `${e.ts}:${e.type}:${idx}`
