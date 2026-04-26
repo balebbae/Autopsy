@@ -13,6 +13,7 @@ import {
   runPostflight,
   schedulePostflight,
   setPostflightChecks,
+  startNewPostflightTurn,
   type CheckResult,
 } from "../postflight.ts"
 
@@ -483,6 +484,97 @@ async function testResolveBaseCwdFallsBackToRepoRoot() {
   )
 }
 
+// Hard guarantee: at most ONE postflight run per AI turn, even if opencode
+// emits multiple `session.idle` events during the turn (transient idles in
+// agentic loops, subtask boundaries, compaction pauses, etc).
+async function testOncePerTurnDedup() {
+  _resetPostflight()
+  captured.length = 0
+  const cfgMod = await import("../config.ts")
+  // @ts-ignore — test-only mutation
+  cfgMod.config.postflight.debounceMs = 20
+  setPostflightChecks([{ name: "scheduled", cmd: "scheduled-cmd" }])
+  bindPostflight({
+    $: makeFakeShell({
+      "scheduled-cmd": { exitCode: 0, stdout: "ok" },
+    }),
+  })
+
+  // Simulate three transient `session.idle` events in a single turn —
+  // mark dirty before each so the scheduler sees real activity. Without
+  // the per-turn dedup this would produce three completed events.
+  markPostflightDirty("session-once-per-turn")
+  schedulePostflight("session-once-per-turn")
+  await sleep(40)
+  markPostflightDirty("session-once-per-turn")
+  schedulePostflight("session-once-per-turn")
+  await sleep(40)
+  markPostflightDirty("session-once-per-turn")
+  schedulePostflight("session-once-per-turn")
+  await sleep(40)
+
+  const completed = captured
+    .filter((c) => c.url.endsWith("/v1/events"))
+    .flatMap((c) => (Array.isArray(c.body?.events) ? c.body.events : [c.body]))
+    .filter((e: any) => e?.type === "aag.postflight.completed")
+  assert(
+    completed.length === 1,
+    `expected exactly ONE postflight per turn; saw ${completed.length}`,
+  )
+
+  // After a new user message starts a new turn, the next idle should run again.
+  startNewPostflightTurn("session-once-per-turn")
+  markPostflightDirty("session-once-per-turn")
+  schedulePostflight("session-once-per-turn")
+  await sleep(60)
+  const completed2 = captured
+    .filter((c) => c.url.endsWith("/v1/events"))
+    .flatMap((c) => (Array.isArray(c.body?.events) ? c.body.events : [c.body]))
+    .filter((e: any) => e?.type === "aag.postflight.completed")
+  assert(
+    completed2.length === 2,
+    `expected a fresh postflight after new turn; saw ${completed2.length} total`,
+  )
+}
+
+// Cancelling a pending timer (e.g. when the AI starts another tool after a
+// transient idle) should NOT consume the per-turn slot — once the AI is
+// actually done, the next `session.idle` must still be able to schedule.
+async function testCancelDoesNotConsumeTurnSlot() {
+  _resetPostflight()
+  captured.length = 0
+  const cfgMod = await import("../config.ts")
+  // @ts-ignore — test-only mutation
+  cfgMod.config.postflight.debounceMs = 20
+  setPostflightChecks([{ name: "scheduled", cmd: "scheduled-cmd" }])
+  bindPostflight({
+    $: makeFakeShell({
+      "scheduled-cmd": { exitCode: 0, stdout: "ok" },
+    }),
+  })
+
+  markPostflightDirty("session-cancel-keeps-slot")
+  schedulePostflight("session-cancel-keeps-slot")
+  // Simulate a tool.execute.before before the timer fires — this cancels
+  // the pending postflight because the AI isn't actually done.
+  cancelPostflight("session-cancel-keeps-slot")
+  await sleep(40)
+
+  // Now the AI finishes for real — a fresh session.idle should still schedule.
+  markPostflightDirty("session-cancel-keeps-slot")
+  schedulePostflight("session-cancel-keeps-slot")
+  await sleep(60)
+
+  const completed = captured
+    .filter((c) => c.url.endsWith("/v1/events"))
+    .flatMap((c) => (Array.isArray(c.body?.events) ? c.body.events : [c.body]))
+    .filter((e: any) => e?.type === "aag.postflight.completed")
+  assert(
+    completed.length === 1,
+    `cancel + reschedule in same turn should run exactly once; saw ${completed.length}`,
+  )
+}
+
 async function testRejectionReasonFormatting() {
   const failed: CheckResult[] = [
     {
@@ -532,6 +624,8 @@ async function main() {
     await testNewFailureClearsDedup()
     await testCwdValidation()
     await testResolveBaseCwdFallsBackToRepoRoot()
+    await testOncePerTurnDedup()
+    await testCancelDoesNotConsumeTurnSlot()
     await testRejectionReasonFormatting()
     console.log("ok")
   } catch (err) {

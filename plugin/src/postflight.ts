@@ -197,6 +197,7 @@ export function _resetPostflight(): void {
   for (const t of timers.values()) clearTimeout(t)
   timers.clear()
   inflight.clear()
+  turnPostflightFired.clear()
 }
 
 // --- scheduler ------------------------------------------------------------
@@ -232,11 +233,38 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 // trigger that races past the debounce window doesn't spawn a duplicate.
 const inflight = new Set<string>()
 
+// Sessions where postflight has already run (or is running) for the CURRENT
+// AI turn. Cleared by `startNewPostflightTurn(runId)` whenever the user
+// sends a new chat message — that's the only signal we trust to mean a new
+// turn is starting. While this set contains a runId, schedulePostflight
+// becomes a no-op for that session, which guarantees "exactly one postflight
+// run per AI response" even if opencode emits multiple `session.idle` events
+// during a single turn (e.g. transient idles between agentic-loop steps,
+// subtask boundaries, or compaction-driven pauses).
+const turnPostflightFired = new Set<string>()
+
+/** Reset the per-turn dedup flag for a session. Call this exactly once per
+ *  user message (i.e. when a new AI turn is starting) so the next turn can
+ *  trigger its own postflight run. The plugin wires this into the
+ *  `chat.message` hook and the `message.part.updated` user-text path. */
+export function startNewPostflightTurn(runId: string): void {
+  if (!runId) return
+  turnPostflightFired.delete(runId)
+  // A new turn means any pending timer from the previous turn is stale.
+  // (In practice it should already have fired or been cancelled, but be
+  // defensive — a leftover timer here would run with a fresh `turnPostflightFired`
+  // and re-fire postflight at the very start of the new turn.)
+  cancelPostflight(runId)
+}
+
 export function schedulePostflight(runId: string, opts?: ScheduleOptions): void {
   if (!runId) return
   if (config.postflight.disabled) return
   if (!bound || !bound.$) return
   if (!dirtySessions.has(runId)) return
+  // Hard guarantee: at most one postflight run per AI turn. Cleared by
+  // `startNewPostflightTurn` on the next user message.
+  if (turnPostflightFired.has(runId)) return
 
   // Capture the wall-clock time of the trigger (session.idle) so that
   // downstream rejection payloads and timeline events are anchored to
@@ -250,6 +278,11 @@ export function schedulePostflight(runId: string, opts?: ScheduleOptions): void 
 
   const t = setTimeout(() => {
     timers.delete(runId)
+    // Latch the per-turn flag the moment the timer fires, BEFORE we await
+    // the actual checks. Any later session.idle that races in while
+    // runPostflight is still executing will see this flag and short-circuit
+    // instead of stacking a duplicate run on top.
+    turnPostflightFired.add(runId)
     void runPostflight(runId).catch((err) => {
       // Swallow — `runPostflight` already logs its own failures, this is
       // just belt-and-braces for the unhandled-rejection case.
