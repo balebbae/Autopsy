@@ -93,6 +93,9 @@ reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
 
 # --- autopsy.surf landing -------------------------------------------------
 
+site-og: ## Re-render site/og.png from scripts/og/template.html (1200x630 social card)
+	bash scripts/og/render.sh
+
 site-pack: ## Build dist/autopsy-surf.zip for direct upload to Cloudflare Pages (root domain)
 	mkdir -p dist
 	rm -f dist/autopsy-surf.zip
