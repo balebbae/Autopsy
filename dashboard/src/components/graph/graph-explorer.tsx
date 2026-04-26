@@ -483,7 +483,7 @@ export function GraphExplorer() {
   return (
     <div className="relative flex h-[calc(100vh-3.5rem)] w-full overflow-hidden bg-grid-dot">
       {/* Floating top toolbar */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-4 md:px-6">
         <div className={cn("pointer-events-auto flex items-center gap-2", view !== "force" && "hidden")}>
             <div className="rounded-lg border border-border bg-card/80 backdrop-blur-md px-3 py-1.5 shadow-sm">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
