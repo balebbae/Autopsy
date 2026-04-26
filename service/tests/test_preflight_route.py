@@ -234,8 +234,8 @@ def test_preflight_trace_empty_task(client: TestClient) -> None:
     assert trace["candidates"] == []
     assert trace["edges"] == []
     assert trace["aggregated"] == []
-    assert trace["embed_provider"] in {"stub", "local", "openai"}
-    assert trace["vector_dim"] in {384, 1536}
+    assert trace["embed_provider"] in {"stub", "local", "openai", "gemini"}
+    assert trace["vector_dim"] in {384, 768, 1536}
     assert trace["max_hop_depth"] == 3
     assert 0.0 < trace["similarity_threshold"] <= 2.0
     assert trace["dampening_factor"] == 1.0

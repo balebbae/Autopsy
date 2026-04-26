@@ -22,7 +22,6 @@ SESSION_IDLE = "session.idle"
 SESSION_DIFF = "session.diff"
 TOOL_AFTER = "tool.execute.after"
 PERMISSION_REPLIED = "permission.replied"
-MESSAGE_PART_UPDATED = "message.part.updated"
 # Plugin-emitted synthetic event for explicitly setting the run's display name.
 # Properties: { task: str, force?: bool }
 AUTOPSY_TASK_SET = "autopsy.task.set"
@@ -39,23 +38,6 @@ def _is_placeholder_task(task: str | None) -> bool:
     return not t or t.lower().startswith("new session")
 
 
-def _extract_user_text(props: dict[str, Any]) -> str | None:
-    """Return user-authored text from a message.part.updated event, or None."""
-    part = props.get("part") or {}
-    if not isinstance(part, dict):
-        return None
-    if part.get("type") != "text":
-        return None
-    # User text parts have no "time" field (assistant deltas do).
-    if "time" in part:
-        return None
-    text = part.get("text")
-    if not isinstance(text, str):
-        return None
-    text = text.strip()
-    return text or None
-
-
 def _derive_task_name(text: str) -> str:
     """First line, truncated, suitable for the runs table."""
     first_line = text.splitlines()[0].strip()
@@ -69,8 +51,7 @@ async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
 
     Also refreshes the task name from later events:
       - session.updated: pick up opencode's auto-generated title
-      - message.part.updated (user text): use the user's first message as task
-        when the current task is missing or a placeholder.
+      - autopsy.task.set: explicit task name from the plugin
 
     Concurrency: the plugin batches events fire-and-forget, so two POST
     /v1/events for the same run_id can be in flight simultaneously. Each
@@ -118,10 +99,6 @@ async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
         # Refresh title if opencode generated a real one (non-placeholder).
         if new_title and not _is_placeholder_task(new_title):
             existing.task = new_title
-    elif ev.type == MESSAGE_PART_UPDATED and _is_placeholder_task(existing.task):
-        user_text = _extract_user_text(ev.properties)
-        if user_text:
-            existing.task = _derive_task_name(user_text)
     elif ev.type == AUTOPSY_TASK_SET:
         new_task = ev.properties.get("task")
         if isinstance(new_task, str) and new_task.strip():
