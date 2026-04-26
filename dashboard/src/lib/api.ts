@@ -213,4 +213,100 @@ export async function postPreflight(req: PreflightRequest): Promise<PreflightRes
   }
 }
 
+// Knowledge export / import. The full bundle shape lives in the service
+// schemas; on the dashboard side we just need it as an opaque object we can
+// hand back to /v1/graph/import.
+export type GraphExportSource = {
+  project: string | null
+  source_label: string | null
+  embed_provider: string | null
+  embed_dim: number | null
+}
+
+export type GraphExportEmbedding = {
+  entity_type: "task" | "failure" | "fix" | "run_summary"
+  text: string
+  vector: number[]
+}
+
+export type GraphExportSymptom = {
+  name: string
+  evidence: string[]
+  confidence: number
+  source: string | null
+}
+
+export type GraphExportCase = {
+  source_run_id: string
+  started_at: number
+  ended_at: number | null
+  status: "rejected" | "approved" | "aborted"
+  task: string | null
+  task_type: string | null
+  failure_mode: string
+  fix_pattern: string | null
+  components: string[]
+  change_patterns: string[]
+  symptoms: GraphExportSymptom[]
+  summary: string | null
+  embeddings: GraphExportEmbedding[]
+}
+
+export type GraphExportBundle = {
+  schema_version: number
+  exported_at: number
+  source: GraphExportSource
+  cases: GraphExportCase[]
+}
+
+export type GraphImportResult = {
+  cases_added: number
+  cases_skipped: number
+  embeddings_added: number
+  embeddings_skipped: number
+}
+
+export async function fetchGraphExport(opts: {
+  project?: string | null
+  sourceLabel?: string | null
+}): Promise<GraphExportBundle> {
+  const params = new URLSearchParams()
+  if (opts.project) params.set("project", opts.project)
+  if (opts.sourceLabel) params.set("source_label", opts.sourceLabel)
+  const qs = params.toString()
+  const r = await fetch(`${baseUrl}/v1/graph/export${qs ? `?${qs}` : ""}`, {
+    cache: "no-store",
+  })
+  if (!r.ok) {
+    throw new Error(`export failed: ${r.status} ${r.statusText}`)
+  }
+  return r.json()
+}
+
+export async function postGraphImport(
+  bundle: unknown,
+  opts: { sourceLabel?: string | null } = {},
+): Promise<GraphImportResult> {
+  const params = new URLSearchParams()
+  if (opts.sourceLabel) params.set("source_label", opts.sourceLabel)
+  const qs = params.toString()
+  const r = await fetch(`${baseUrl}/v1/graph/import${qs ? `?${qs}` : ""}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(bundle),
+    cache: "no-store",
+  })
+  if (!r.ok) {
+    let detail = `${r.status} ${r.statusText}`
+    try {
+      const body = await r.json()
+      if (body?.detail) detail = String(body.detail)
+    } catch {
+      // body wasn't JSON; keep the status text
+    }
+    throw new Error(detail)
+  }
+  return r.json()
+}
+
 export const apiBaseUrl = baseUrl
