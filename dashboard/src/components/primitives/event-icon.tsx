@@ -29,6 +29,8 @@ const map: Record<string, EventMeta> = {
   "session.updated": { Icon: ArrowRight, tone: "text-muted-foreground" },
   "session.idle": { Icon: Moon, tone: "text-muted-foreground" },
   "session.diff": { Icon: GitBranch, tone: "text-violet-500" },
+  "session.deleted": { Icon: StopCircle, tone: "text-amber-500" },
+  "server.instance.disposed": { Icon: StopCircle, tone: "text-muted-foreground" },
   "tool.execute.before": { Icon: Wrench, tone: "text-muted-foreground" },
   "tool.execute.after": { Icon: Hammer, tone: "text-emerald-500" },
   "file.edited": { Icon: FileDiff, tone: "text-emerald-500" },

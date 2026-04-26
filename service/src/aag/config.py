@@ -75,6 +75,19 @@ class Settings(BaseSettings):
     # caching in the first place.
     preflight_negative_cache_ttl_s: int = 30
 
+    # Stale-run sweeper. Flips ``active`` runs that haven't seen an event
+    # in ``stale_run_threshold_ms`` to ``aborted`` so the dashboard
+    # doesn't pin abandoned runs as "Live" forever. The plugin's
+    # lifecycle handlers cover the graceful-exit path; this is the
+    # safety net for SIGKILL / crashes / network drops.
+    #
+    # Threshold default is conservative: even a long human-thinking pause
+    # rarely exceeds 30 minutes, and shorter values risk flipping a run
+    # the user is actively (but slowly) iterating on.
+    stale_run_threshold_ms: int = 30 * 60 * 1000  # 30 min
+    stale_run_sweep_interval_ms: int = 60 * 1000  # 1 min
+    stale_run_sweep_disabled: bool = False
+
     @property
     def embed_dim(self) -> int:
         return PROVIDER_DIM[self.embed_provider]

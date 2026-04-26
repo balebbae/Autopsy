@@ -1,14 +1,21 @@
 """FastAPI app factory."""
 
+import asyncio
+import contextlib
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from aag import __version__
+from aag.config import get_settings
 from aag.db import dispose, verify_vector_dim
 from aag.db_init import init_schema
 from aag.routes import events, graph, preflight, runs, stream
+from aag.workers.stale_sweeper import run_periodic as run_stale_sweeper
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -19,15 +26,39 @@ async def lifespan(app: FastAPI):
     try:
         await init_schema()
     except Exception:  # noqa: BLE001
-        import logging
-
-        logging.getLogger(__name__).exception("init_schema failed (continuing)")
+        log.exception("init_schema failed (continuing)")
     # Verify pgvector column dimension matches the configured EMBED_PROVIDER's
     # PROVIDER_DIM. Fails loudly if a provider switch happened without
     # `make embed-reset`, since silent dim mismatch corrupts ANN search.
     await verify_vector_dim()
-    yield
-    await dispose()
+
+    # Spawn the stale-run sweeper. This is the safety net for the case
+    # where the plugin (R1) couldn't post a final outcome — opencode was
+    # force-killed, the laptop crashed, etc. Without it, abandoned runs
+    # stay pinned as "Active / Live" in the dashboard forever. The
+    # `STALE_RUN_SWEEP_DISABLED=true` env var lets ops opt out.
+    settings = get_settings()
+    sweeper_task: asyncio.Task[None] | None = None
+    if not settings.stale_run_sweep_disabled:
+        sweeper_task = asyncio.create_task(
+            run_stale_sweeper(
+                threshold_ms=settings.stale_run_threshold_ms,
+                interval_ms=settings.stale_run_sweep_interval_ms,
+            ),
+            name="aag.stale_sweeper",
+        )
+
+    try:
+        yield
+    finally:
+        if sweeper_task is not None:
+            sweeper_task.cancel()
+            # CancelledError is the expected path; everything else is
+            # already logged inside the sweeper. Either way we don't
+            # want shutdown to fail because of cleanup.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await sweeper_task
+        await dispose()
 
 
 app = FastAPI(

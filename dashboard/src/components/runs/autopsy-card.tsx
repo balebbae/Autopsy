@@ -54,6 +54,8 @@ export function AutopsyCard({
     )
   }
   const rejCount = run?.rejection_count ?? 0
+  const components = Array.from(new Set(failure.components))
+  const changePatterns = Array.from(new Set(failure.change_patterns))
   const title = rejCount > 1 ? "Latest autopsy" : "Autopsy"
   const description =
     rejCount > 1
@@ -113,17 +115,17 @@ export function AutopsyCard({
             </ul>
           </div>
         ) : null}
-        {failure.components.length > 0 || failure.change_patterns.length > 0 ? (
+        {components.length > 0 || changePatterns.length > 0 ? (
           <>
             <Separator />
             <div className="grid grid-cols-1 gap-3">
-              {failure.components.length > 0 ? (
+              {components.length > 0 ? (
                 <div>
                   <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5">
                     Components
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {failure.components.map((c) => (
+                    {components.map((c) => (
                       <Badge key={c} variant="muted" className="font-mono text-[10px]">
                         {c}
                       </Badge>
@@ -131,13 +133,13 @@ export function AutopsyCard({
                   </div>
                 </div>
               ) : null}
-              {failure.change_patterns.length > 0 ? (
+              {changePatterns.length > 0 ? (
                 <div>
                   <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1.5">
                     Change patterns
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {failure.change_patterns.map((c) => (
+                    {changePatterns.map((c) => (
                       <Badge
                         key={c}
                         variant="muted"
