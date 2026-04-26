@@ -305,6 +305,154 @@ class TestSentimentRule:
         )
         assert sentiment.check(ctx) is None
 
+    def test_detects_thats_wrong(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["that's wrong, the endpoint should return a list"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert result.name == "user_frustration"
+        assert any("rejection:" in e for e in result.evidence)
+
+    def test_detects_doesnt_work(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["this doesn't work, the tests are failing"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_still_broken(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["it's still broken after your change"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_no_comma_at_start(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["no, do something else"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert any("dissatisfaction:" in e for e in result.evidence)
+
+    def test_detects_nope(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["nope"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_try_again(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["try again with the correct import path"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_why_did_you(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["why did you delete that function?"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_you_missed(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["you forgot to add the import statement"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_not_quite(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["not quite, the return type should be Optional"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_detects_i_didnt_ask(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["I didn't ask for that refactor"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+
+    def test_mild_signals_accumulate(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["nope", "try again", "you missed the edge case"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert len(result.evidence) == 3
+        assert result.confidence >= 0.6
+
+    def test_mixed_tiers_accumulate(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["that's wrong", "this is garbage"],
+        )
+        result = sentiment.check(ctx)
+        assert result is not None
+        assert result.confidence >= 0.8
+
+    def test_no_false_positive_on_no_problem(self):
+        ctx = RunContext(
+            run_id="r1",
+            task=None,
+            status="in_progress",
+            rejection_reason=None,
+            user_messages=["no problem, looks great"],
+        )
+        assert sentiment.check(ctx) is None
+
     def test_picks_user_dissatisfaction_mode(self):
         symptoms = [
             Symptom(name="user_frustration", confidence=0.8),

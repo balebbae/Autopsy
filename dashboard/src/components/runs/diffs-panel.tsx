@@ -17,13 +17,20 @@ const ReactDiffViewer = dynamic(() => import("react-diff-viewer-continued"), {
 })
 
 export function DiffsPanel({ snapshots }: { snapshots: DiffSnapshot[] }) {
-  const flat = React.useMemo(() => {
-    const seen = new Map<string, DiffFile>()
-    snapshots.forEach((s) => s.files.forEach((f) => seen.set(f.file, f)))
-    return Array.from(seen.values())
-  }, [snapshots])
+  // opencode emits cumulative session.diff snapshots (relative to session
+  // start), so the *latest* snapshot is always the source of truth for the
+  // current workspace state. Merging files across snapshots leaks stale
+  // entries (e.g. a file that was created and then reverted would still
+  // show up as "added"). Render only the most recent snapshot's files;
+  // surface older snapshots via the History accordion.
+  const ordered = React.useMemo(
+    () => [...snapshots].sort((a, b) => (b.captured_at ?? 0) - (a.captured_at ?? 0)),
+    [snapshots],
+  )
+  const latestSnapshot = ordered[0]
+  const latestFiles = latestSnapshot?.files ?? []
 
-  if (flat.length === 0) {
+  if (ordered.length === 0) {
     return (
       <SectionCard title="Diffs" description="Per-file changes recorded during the run">
         <EmptyState
@@ -35,18 +42,94 @@ export function DiffsPanel({ snapshots }: { snapshots: DiffSnapshot[] }) {
       </SectionCard>
     )
   }
+
+  const tsLabel = latestSnapshot?.captured_at
+    ? new Date(latestSnapshot.captured_at).toLocaleTimeString()
+    : null
+  const desc =
+    latestFiles.length === 0
+      ? `Workspace clean${tsLabel ? ` · latest snapshot ${tsLabel}` : ""}${ordered.length > 1 ? ` · ${ordered.length} snapshots` : ""}`
+      : `${latestFiles.length} file${latestFiles.length === 1 ? "" : "s"} changed${tsLabel ? ` · latest ${tsLabel}` : ""}${ordered.length > 1 ? ` · ${ordered.length} snapshots` : ""}`
+
   return (
-    <SectionCard
-      title="Diffs"
-      description={`${flat.length} file${flat.length === 1 ? "" : "s"} changed`}
-      bodyClassName="p-0"
-    >
-      <ul className="divide-y divide-border">
-        {flat.map((f, idx) => (
-          <DiffItem key={f.file} file={f} defaultOpen={idx === 0} />
-        ))}
-      </ul>
+    <SectionCard title="Diffs" description={desc} bodyClassName="p-0">
+      {latestFiles.length === 0 ? (
+        <EmptyState
+          Icon={FileDiff}
+          title="No changes in latest snapshot"
+          description="All previous changes have been reverted or no edits remain. See History below for prior snapshots."
+          className="py-8"
+        />
+      ) : (
+        <ul className="divide-y divide-border">
+          {latestFiles.map((f, idx) => (
+            <DiffItem
+              key={`${latestSnapshot?.captured_at ?? 0}:${f.file}`}
+              file={f}
+              defaultOpen={idx === 0}
+            />
+          ))}
+        </ul>
+      )}
+      {ordered.length > 1 ? <DiffHistory snapshots={ordered} /> : null}
     </SectionCard>
+  )
+}
+
+function DiffHistory({ snapshots }: { snapshots: DiffSnapshot[] }) {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <div className="border-t border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-5 py-2 text-xs text-muted-foreground hover:bg-accent/40"
+      >
+        <span>
+          History · {snapshots.length} snapshot{snapshots.length === 1 ? "" : "s"}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+      </button>
+      {open ? (
+        <ul className="divide-y divide-border bg-muted/20">
+          {snapshots.map((s, i) => (
+            <li key={`${s.captured_at}-${i}`} className="px-5 py-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                <span className="font-mono">
+                  {s.captured_at
+                    ? new Date(s.captured_at).toLocaleTimeString()
+                    : `Snapshot ${snapshots.length - i}`}
+                </span>
+                <span className="tabular-nums">
+                  {s.files.length} file{s.files.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <ul className="mt-1 space-y-0.5">
+                {s.files.map((f) => (
+                  <li
+                    key={f.file}
+                    className="flex items-center gap-2 font-mono text-[11px]"
+                  >
+                    <span className="truncate">{f.file}</span>
+                    {typeof f.additions === "number" ? (
+                      <span className="text-emerald-500">+{f.additions}</span>
+                    ) : null}
+                    {typeof f.deletions === "number" ? (
+                      <span className="text-red-500">-{f.deletions}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   )
 }
 

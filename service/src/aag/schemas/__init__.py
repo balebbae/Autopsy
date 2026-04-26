@@ -1,6 +1,6 @@
 """Pydantic v2 request/response schemas. Mirror contracts/openapi.yaml."""
 
-from aag.schemas.events import EventIn, EventBatch
+from aag.schemas.events import EventBatch, EventIn
 from aag.schemas.graph import GraphEdgeOut, GraphNodeOut
 from aag.schemas.preflight import PreflightRequest, PreflightResponse
 from aag.schemas.runs import (
@@ -8,6 +8,8 @@ from aag.schemas.runs import (
     DiffSnapshotFile,
     FailureCaseOut,
     OutcomeIn,
+    RejectionIn,
+    RejectionOut,
     RunOut,
     RunSummary,
     Symptom,
@@ -21,6 +23,8 @@ __all__ = [
     "DiffSnapshot",
     "DiffSnapshotFile",
     "OutcomeIn",
+    "RejectionIn",
+    "RejectionOut",
     "FailureCaseOut",
     "Symptom",
     "PreflightRequest",

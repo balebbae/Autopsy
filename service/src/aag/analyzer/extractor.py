@@ -49,6 +49,10 @@ class Extraction:
     # Per-tool usage breakdown: { tool_name: {count, failures, examples[]} }.
     # Drives the knowledge graph's "what tools were used" texture.
     tool_usage: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Per-file diff text. Populated from the classifier's RunContext for
+    # hybrid retrieval (Phase 4): each file's patch becomes its own
+    # embedding row keyed ``patch:<run_id>:<path>``.
+    patches: dict[str, str] = field(default_factory=dict)
 
 
 def extract(ctx: RunContext, failure_case: FailureCaseOut | None = None) -> Extraction:
@@ -71,6 +75,7 @@ def extract(ctx: RunContext, failure_case: FailureCaseOut | None = None) -> Extr
             fix_pattern=failure_case.fix_pattern,
             symptoms=failure_case.symptoms,
             tool_usage=tool_usage,
+            patches=dict(ctx.patches),
         )
 
     return Extraction(
@@ -85,6 +90,7 @@ def extract(ctx: RunContext, failure_case: FailureCaseOut | None = None) -> Extr
         failure_mode=None,
         fix_pattern=None,
         tool_usage=tool_usage,
+        patches=dict(ctx.patches),
     )
 
 

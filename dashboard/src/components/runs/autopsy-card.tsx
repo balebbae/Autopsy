@@ -1,31 +1,66 @@
 import * as React from "react"
-import { Microscope, Wand2 } from "lucide-react"
+import { Loader2, Microscope, Wand2 } from "lucide-react"
 
-import type { FailureCase } from "@/lib/api"
+import type { FailureCase, Run } from "@/lib/api"
 import { SectionCard } from "@/components/primitives/section-card"
 import { Badge } from "@/components/ui/badge"
 import { ConfidenceBar } from "@/components/primitives/confidence-bar"
 import { Separator } from "@/components/ui/separator"
 import { EmptyState } from "@/components/primitives/empty-state"
+import { humanize, humanizeFailureMode, humanizeSymptom } from "@/lib/labels"
 
-export function AutopsyCard({ failure }: { failure: FailureCase | null }) {
+export function AutopsyCard({
+  failure,
+  run,
+}: {
+  failure: FailureCase | null
+  // Optional — when provided, AutopsyCard can distinguish "no analysis
+  // yet (idle)" from "analysis in flight (waiting on classifier/gemma)".
+  run?: Pick<Run, "status" | "rejection_count">
+}) {
   if (!failure) {
+    const analyzing =
+      run != null &&
+      ((run.rejection_count ?? 0) > 0 ||
+        run.status === "rejected" ||
+        run.status === "aborted")
+    if (analyzing) {
+      return (
+        <SectionCard title="Autopsy" description="Classifying failure mode + symptoms">
+          <div className="py-10 px-2 flex items-center justify-center text-center">
+            <div className="space-y-3">
+              <Loader2 className="h-7 w-7 mx-auto text-primary animate-spin" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Analyzing run…</p>
+                <p className="text-xs text-muted-foreground max-w-[28ch] mx-auto leading-snug">
+                  Running the rules pass and gemma classification on the
+                  events captured so far. This usually takes a few seconds.
+                </p>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      )
+    }
     return (
       <SectionCard title="Autopsy" description="Run analyzer output">
         <EmptyState
           Icon={Microscope}
           title="No autopsy yet"
-          description="The analyzer (R3) hasn't been wired in. Once it lands, classified failure modes and symptoms appear here."
+          description="No rejection has been filed on this run. The analyzer runs after a rejection, or when the run terminates with /outcome."
           className="py-10"
         />
       </SectionCard>
     )
   }
+  const rejCount = run?.rejection_count ?? 0
+  const title = rejCount > 1 ? "Latest autopsy" : "Autopsy"
+  const description =
+    rejCount > 1
+      ? `Most recent rejection of ${rejCount} · classified failure mode + symptoms`
+      : "Classified failure mode + symptoms"
   return (
-    <SectionCard
-      title="Autopsy"
-      description="Classified failure mode + symptoms"
-    >
+    <SectionCard title={title} description={description}>
       <div className="space-y-5">
         <div>
           <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
@@ -34,8 +69,9 @@ export function AutopsyCard({ failure }: { failure: FailureCase | null }) {
           <Badge
             variant="outline"
             className="mt-1.5 text-sm font-medium bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 py-1 px-2.5"
+            title={failure.failure_mode}
           >
-            {failure.failure_mode}
+            {humanizeFailureMode(failure.failure_mode)}
           </Badge>
         </div>
         {failure.fix_pattern ? (
@@ -58,7 +94,9 @@ export function AutopsyCard({ failure }: { failure: FailureCase | null }) {
               {failure.symptoms.map((s) => (
                 <li key={s.name}>
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium">{s.name}</span>
+                    <span className="text-sm font-medium" title={s.name}>
+                      {humanizeSymptom(s.name)}
+                    </span>
                   </div>
                   <ConfidenceBar value={s.confidence} className="mt-1" />
                   {s.evidence?.length ? (
@@ -100,8 +138,13 @@ export function AutopsyCard({ failure }: { failure: FailureCase | null }) {
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {failure.change_patterns.map((c) => (
-                      <Badge key={c} variant="muted" className="font-mono text-[10px]">
-                        {c}
+                      <Badge
+                        key={c}
+                        variant="muted"
+                        className="text-[10px]"
+                        title={c}
+                      >
+                        {humanize(c)}
                       </Badge>
                     ))}
                   </div>

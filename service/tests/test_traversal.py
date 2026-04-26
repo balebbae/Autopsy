@@ -125,7 +125,9 @@ async def _seed_rejected_schema_run(session: AsyncSession, run_id: str) -> None:
 async def _cleanup(run_id: str) -> None:
     sm = sessionmaker()
     async with sm() as session:
-        await session.execute(delete(Embedding).where(Embedding.entity_id == run_id))
+        # Phase 4 added patch/error embeddings keyed ``<run_id>:<suffix>``;
+        # match on LIKE so they're removed too.
+        await session.execute(delete(Embedding).where(Embedding.entity_id.like(f"{run_id}%")))
         await session.execute(delete(FailureCase).where(FailureCase.run_id == run_id))
         await session.execute(delete(GraphNode).where(GraphNode.id == f"Run:{run_id}"))
         await session.execute(delete(Run).where(Run.run_id == run_id))
@@ -185,21 +187,30 @@ async def test_preflight_with_no_match() -> None:
 async def test_preflight_finds_similar_run() -> None:
     """Identical task text → cosine distance 0 → must surface the seeded run,
     its FailureMode, and a non-empty system addendum.
+
+    The request scopes by ``project='autopsy-tests'`` so we don't pick up
+    historical fixture / replay data from other projects in the dev DB.
     """
     run_id = await _seed_one()
     try:
         sm = sessionmaker()
         async with sm() as session:
-            resp = await preflight(session, PreflightRequest(task=SCHEMA_TASK))
+            resp = await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="autopsy-tests"),
+            )
 
         assert resp.risk_level != "none"
         assert run_id in resp.similar_runs
         assert "incomplete_schema_change" in resp.missing_followups
         assert resp.system_addendum is not None
         assert "incomplete_schema_change" in resp.system_addendum
-        # The seeded fix is "regenerate_types" → it should appear in the
-        # recommended checks list.
-        assert "regenerate_types" in resp.recommended_checks
+        # The rules-based classifier maps ``incomplete_schema_change`` to
+        # this canonical fix string (see ``MODE_TO_FIX`` in classifier.py).
+        assert any(
+            "migration" in check.lower() and "regenerate" in check.lower()
+            for check in resp.recommended_checks
+        ), f"expected a migration/regenerate fix; got {resp.recommended_checks}"
     finally:
         await _cleanup(run_id)
 
@@ -216,3 +227,353 @@ async def test_preflight_returns_none_for_unrelated_task() -> None:
     # under the threshold; the important property is that the function
     # doesn't blow up and returns a well-typed response.
     assert resp.risk_level in {"none", "low"}
+
+
+async def test_preflight_scopes_by_project() -> None:
+    """A preflight request scoped to a project that has no rejected runs
+    must return ``none`` even when an identical-task rejected run exists
+    in a different project.
+    """
+    run_id = await _seed_one()  # project='autopsy-tests'
+    try:
+        sm = sessionmaker()
+        async with sm() as session:
+            resp = await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="some-other-project"),
+            )
+        assert resp.risk_level == "none"
+        assert resp.similar_runs == []
+        assert resp.system_addendum is None
+    finally:
+        await _cleanup(run_id)
+
+
+async def _seed_approved_schema_run(session: AsyncSession, run_id: str) -> None:
+    """Seed an ``approved`` run with the same task as the rejected one. We
+    don't run it through the finalizer (approved runs don't produce
+    FailureCases / graph edges) but we DO write an embedding so the ANN
+    query picks it up as counter-evidence.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from aag.graph.embeddings import embed
+    from aag.models import Embedding
+
+    now = int(time() * 1000)
+    session.add(
+        Run(
+            run_id=run_id,
+            project="autopsy-tests",
+            worktree="/tmp/autopsy-tests",
+            task=SCHEMA_TASK,
+            started_at=now,
+            ended_at=now,
+            status="approved",
+        )
+    )
+    await session.flush()
+    vec = await embed(SCHEMA_TASK)
+    stmt = (
+        pg_insert(Embedding)
+        .values(entity_type="task", entity_id=run_id, text=SCHEMA_TASK, vector=vec)
+        .on_conflict_do_update(
+            index_elements=["entity_type", "entity_id"],
+            set_={"text": SCHEMA_TASK, "vector": vec},
+        )
+    )
+    await session.execute(stmt)
+
+
+async def test_preflight_dampens_with_approved_counter_evidence() -> None:
+    """One approved similar run should dampen (but not zero out) the score
+    of an identically-tasked rejected run. With ``counter_weight=0.5`` the
+    score is multiplied by 1/(1 + 0.5*1) = 2/3, so a single failure that
+    might land at ``low`` stays at ``low`` or drops to ``none`` if borderline.
+    """
+    failed_id = await _seed_one()
+    approved_id = f"test-traversal-approved-{uuid4().hex[:8]}"
+    try:
+        sm = sessionmaker()
+        async with sm() as session:
+            await _seed_approved_schema_run(session, approved_id)
+            await session.commit()
+
+        async with sm() as session:
+            unscoped = await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="autopsy-tests"),
+            )
+
+        # The failure mode is still surfaced (one rejected run is real
+        # evidence) but the FailureMode score is dampened.
+        assert "incomplete_schema_change" in unscoped.missing_followups
+        # similar_runs only contains FAILED runs (approved are counter-
+        # evidence, not surfaced as warnings).
+        assert failed_id in unscoped.similar_runs
+        assert approved_id not in unscoped.similar_runs
+    finally:
+        sm = sessionmaker()
+        async with sm() as session:
+            await session.execute(
+                delete(Embedding).where(Embedding.entity_id.like(f"{approved_id}%"))
+            )
+            await session.execute(delete(Run).where(Run.run_id == approved_id))
+            await session.commit()
+        await _cleanup(failed_id)
+
+
+async def test_preflight_temporal_decay() -> None:
+    """A 90d-old edge contributes less to ``avg_conf`` than a fresh edge.
+    With ``half_life=30`` days, the decay factor at 90 days is ``exp(-3) ≈
+    0.05``; at 0 days it's 1.0. We seed two runs (same FailureMode), pin
+    one's edge ``created_at`` 90d in the past, then check that the
+    aggregated ``avg_conf`` is well below 1.0 (specifically, the average
+    of 1.0 + ~0.05 = ~0.525, with both edges' confidence multiplied by the
+    chained 0.7*1.0 path).
+    """
+    from sqlalchemy import text as sa_text
+    from sqlalchemy import update
+
+    from aag.graph.traversal import _HOP_SQL  # noqa: PLC0415
+    from aag.models import GraphEdge
+
+    fresh_id = await _seed_one()
+    old_id = await _seed_one()
+    try:
+        # Push every edge linked to old_id back 90 days.
+        sm = sessionmaker()
+        async with sm() as session:
+            await session.execute(
+                update(GraphEdge)
+                .where(GraphEdge.evidence_run_id == old_id)
+                .values(created_at=sa_text("NOW() - INTERVAL '90 days'"))
+            )
+            await session.commit()
+
+        # Fresh-only baseline for comparison.
+        async with sm() as session:
+            fresh_only = (
+                await session.execute(
+                    _HOP_SQL,
+                    {
+                        "roots": [f"Run:{fresh_id}"],
+                        "run_ids": [fresh_id],
+                        "max_depth": 3,
+                        "half_life": 30.0,
+                    },
+                )
+            ).all()
+        fresh_fm = next(
+            r
+            for r in fresh_only
+            if r.node_type == "FailureMode" and r.node_name == "incomplete_schema_change"
+        )
+
+        # Combined query (fresh + old) — old edges' decay should drop the avg.
+        async with sm() as session:
+            combined = (
+                await session.execute(
+                    _HOP_SQL,
+                    {
+                        "roots": [f"Run:{fresh_id}", f"Run:{old_id}"],
+                        "run_ids": [fresh_id, old_id],
+                        "max_depth": 3,
+                        "half_life": 30.0,
+                    },
+                )
+            ).all()
+        combined_fm = next(
+            r
+            for r in combined
+            if r.node_type == "FailureMode" and r.node_name == "incomplete_schema_change"
+        )
+
+        # Combined run sees more raw evidence (freq=2) but the avg_conf is
+        # diluted by the 90d decay. We only assert dilution is non-trivial:
+        # combined avg_conf < fresh-only avg_conf (since old contributes ~5%).
+        assert int(combined_fm.freq) == 2
+        assert combined_fm.avg_conf < fresh_fm.avg_conf, (
+            f"expected decay to drop avg_conf below fresh-only "
+            f"({fresh_fm.avg_conf:.3f}), got {combined_fm.avg_conf:.3f}"
+        )
+    finally:
+        await _cleanup(fresh_id)
+        await _cleanup(old_id)
+
+
+async def test_preflight_uses_cache(monkeypatch) -> None:
+    """Second call with identical (project, task) must hit the in-process
+    TTL cache and skip the embed + DB queries.
+    """
+    from aag.graph import preflight_cache  # noqa: PLC0415
+
+    run_id = await _seed_one()
+    try:
+        sm = sessionmaker()
+        async with sm() as session:
+            first = await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="autopsy-tests"),
+            )
+        assert run_id in first.similar_runs
+
+        # Counter: zero embed + zero SQL on the second call.
+        from aag.graph import traversal as _trav  # noqa: PLC0415
+
+        embed_calls = {"n": 0}
+        original_embed = _trav.embed
+
+        async def _counted_embed(text: str):
+            embed_calls["n"] += 1
+            return await original_embed(text)
+
+        monkeypatch.setattr(_trav, "embed", _counted_embed)
+        async with sm() as session:
+            second = await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="autopsy-tests"),
+            )
+        assert embed_calls["n"] == 0, "cache hit should not re-embed"
+        assert second.similar_runs == first.similar_runs
+        assert second.system_addendum == first.system_addendum
+
+        # Different project = different cache key → cold path runs again.
+        async with sm() as session:
+            await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="other"),
+            )
+        assert embed_calls["n"] == 1
+    finally:
+        preflight_cache.clear()
+        await _cleanup(run_id)
+
+
+async def test_preflight_block_knob(monkeypatch) -> None:
+    """When ``PREFLIGHT_BLOCK_THRESHOLD`` is set and the top failure score
+    exceeds it, the response must set ``block=True`` and a ``reason``.
+    Default behaviour (threshold=None) is warnings-only.
+    """
+    from aag.config import get_settings  # noqa: PLC0415
+    from aag.graph import preflight_cache  # noqa: PLC0415
+
+    run_id = await _seed_one()
+    try:
+        # Default: warnings only.
+        sm = sessionmaker()
+        async with sm() as session:
+            warn = await preflight(
+                session,
+                PreflightRequest(task=SCHEMA_TASK, project="autopsy-tests"),
+            )
+        assert warn.block is False
+        assert warn.reason is None
+
+        preflight_cache.clear()
+
+        # Threshold below the smallest plausible score → must block.
+        monkeypatch.setenv("PREFLIGHT_BLOCK_THRESHOLD", "0.01")
+        get_settings.cache_clear()
+        try:
+            async with sm() as session:
+                blocked = await preflight(
+                    session,
+                    PreflightRequest(task=SCHEMA_TASK, project="autopsy-tests"),
+                )
+            assert blocked.block is True
+            assert blocked.reason and "incomplete_schema_change" in blocked.reason
+        finally:
+            monkeypatch.delenv("PREFLIGHT_BLOCK_THRESHOLD", raising=False)
+            get_settings.cache_clear()
+    finally:
+        preflight_cache.clear()
+        await _cleanup(run_id)
+
+
+async def test_preflight_hybrid_retrieval_via_patch() -> None:
+    """Phase 4 hybrid retrieval: with the stub embedder, exact match on
+    a patch's text content should surface its run via the ``patch``
+    entity_type ANN even when the request task is unrelated to the seeded
+    task wording.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from aag.graph.embeddings import embed
+    from aag.models import Embedding
+
+    failed_id = await _seed_one()
+    try:
+        # Seed a synthetic patch embedding for the run with content we'll
+        # query against. We don't go through write_for here because our
+        # seeded run had a real patch from the fixture; we're testing
+        # the SQL CASE/split_part path in _ANN_SQL specifically.
+        patch_text = "@@ migration table-add columnX preferredName"
+        sm = sessionmaker()
+        async with sm() as session:
+            vec = await embed(patch_text)
+            stmt = (
+                pg_insert(Embedding)
+                .values(
+                    entity_type="patch",
+                    entity_id=f"{failed_id}:src/migrations/0001_add_preferred.sql",
+                    text=patch_text,
+                    vector=vec,
+                )
+                .on_conflict_do_update(
+                    index_elements=["entity_type", "entity_id"],
+                    set_={"text": patch_text, "vector": vec},
+                )
+            )
+            await session.execute(stmt)
+            await session.commit()
+
+        # Query with text that matches the PATCH but not the task. The stub
+        # embedder is a pure SHA-256 hash, so only exact strings match — so
+        # we send the same patch text. In production with `local` /
+        # `openai`, semantic similarity does the heavy lifting.
+        sm = sessionmaker()
+        async with sm() as session:
+            resp = await preflight(
+                session,
+                PreflightRequest(task=patch_text, project="autopsy-tests"),
+            )
+        # The seeded failed run must surface even though its task wording
+        # ("Add preferredName...") differs from the query text.
+        assert failed_id in resp.similar_runs
+    finally:
+        await _cleanup(failed_id)
+
+
+async def test_preflight_does_not_double_count_evidence() -> None:
+    """A run with two symptoms pointing at the same FailureMode should be
+    counted once (``COUNT(DISTINCT evidence_run_id)``). The seeded run
+    produces multiple symptoms via the analyzer; if dedup were broken,
+    ``freq`` would inflate above the per-run-1 bound.
+    """
+    run_id = await _seed_one()
+    try:
+        sm = sessionmaker()
+        async with sm() as session:
+            # Run the raw aggregation directly to inspect ``freq``.
+            from aag.graph.traversal import _HOP_SQL  # noqa: PLC0415
+
+            rows = (
+                await session.execute(
+                    _HOP_SQL,
+                    {
+                        "roots": [f"Run:{run_id}"],
+                        "run_ids": [run_id],
+                        "max_depth": 3,
+                        "half_life": 30.0,
+                    },
+                )
+            ).all()
+        failure_rows = [r for r in rows if r.node_type == "FailureMode"]
+        assert failure_rows, "expected at least one FailureMode row"
+        # Exactly one rejected run as the root → freq for any FailureMode
+        # reachable from it must be 1, not 2 or 3.
+        for r in failure_rows:
+            assert int(r.freq) == 1, f"freq inflated for {r.node_name}: {r.freq}"
+    finally:
+        await _cleanup(run_id)

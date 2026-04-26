@@ -90,10 +90,23 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
     const aborted = runs.filter((r) => r.status === "aborted").length
     const totalCalls = runs.reduce((acc, r) => acc + r.tool_calls, 0)
     const totalFiles = runs.reduce((acc, r) => acc + r.files_touched, 0)
+    const totalRejections = runs.reduce((acc, r) => acc + (r.rejection_count ?? 0), 0)
+    const runsWithRejections = runs.filter((r) => (r.rejection_count ?? 0) > 0).length
     const avgCalls = total ? totalCalls / total : 0
     const avgFiles = total ? totalFiles / total : 0
-    const rejectionRate = total ? (rejected / total) * 100 : 0
-    return { total, rejected, approved, active, aborted, avgCalls, avgFiles, rejectionRate }
+    const rejectionRate = total ? (runsWithRejections / total) * 100 : 0
+    return {
+      total,
+      rejected,
+      approved,
+      active,
+      aborted,
+      avgCalls,
+      avgFiles,
+      rejectionRate,
+      totalRejections,
+      runsWithRejections,
+    }
   }, [runs])
 
   const sparkData = React.useMemo(() => buildSparkSeries(runs), [runs])
@@ -122,9 +135,9 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
           <Sparkline data={sparkData} accent="var(--primary)" />
         </KpiCard>
         <KpiCard
-          label="Rejected"
-          value={stats.rejected}
-          sublabel={`${stats.rejectionRate.toFixed(0)}% rate`}
+          label="Rejections filed"
+          value={stats.totalRejections}
+          sublabel={`across ${stats.runsWithRejections} run${stats.runsWithRejections === 1 ? "" : "s"} (${stats.rejectionRate.toFixed(0)}%)`}
           Icon={XCircle}
           accent="destructive"
         >
@@ -308,7 +321,18 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
               className="group border-b border-border/60 hover:bg-accent/40 transition-colors"
             >
               <td className="px-5 py-3 align-middle">
-                <StatusPill status={r.status} />
+                <div className="flex items-center gap-1.5">
+                  <StatusPill status={r.status} />
+                  {r.rejection_count > 0 ? (
+                    <span
+                      title={`${r.rejection_count} rejection${r.rejection_count === 1 ? "" : "s"} filed`}
+                      className="inline-flex items-center gap-0.5 rounded-full border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-red-700 dark:text-red-300"
+                    >
+                      <XCircle className="h-2.5 w-2.5" />
+                      {r.rejection_count}
+                    </span>
+                  ) : null}
+                </div>
               </td>
               <td className="px-5 py-3 align-middle max-w-md">
                 <Link
@@ -547,7 +571,8 @@ function buildSparkSeries(runs: RunSummary[]) {
     const k = new Date(r.started_at).toISOString().slice(0, 10)
     if (buckets[k]) {
       buckets[k].value += 1
-      if (r.status === "rejected") buckets[k].rejected += 1
+      // Count rejections filed against the run, not the terminal status.
+      buckets[k].rejected += r.rejection_count ?? 0
     }
   })
   return Object.entries(buckets).map(([date, v]) => ({ date: date.slice(5), ...v }))
