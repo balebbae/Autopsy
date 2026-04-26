@@ -36,11 +36,11 @@ def _stub_embed(text: str, dim: int) -> list[float]:
     return [(b - 128) / 128.0 for b in raw]
 
 
-_GEMINI_EMBED_MODEL = "models/text-embedding-004"
+_GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 
 
 async def _gemini_embed(texts: list[str], settings: Settings) -> list[float]:
-    """Embed a single text via Google ``text-embedding-004`` (free-tier, 768-d)."""
+    """Embed a single text via Google ``gemini-embedding-001`` (free-tier, 768-d)."""
     import google.generativeai as genai  # type: ignore
 
     genai.configure(api_key=settings.gemini_api_key)
@@ -49,7 +49,7 @@ async def _gemini_embed(texts: list[str], settings: Settings) -> list[float]:
 
 
 async def _gemini_embed_batch(texts: list[str], settings: Settings) -> list[list[float]]:
-    """Batch-embed via Google ``text-embedding-004``.
+    """Batch-embed via Google ``gemini-embedding-001``.
 
     ``embed_content`` accepts a list of strings and returns a list of
     vectors in one round-trip (free tier: 1 500 req/min).
