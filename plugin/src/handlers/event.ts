@@ -1,7 +1,7 @@
 import { enqueue, flush } from "../batcher.ts"
 import { postFeedback, postOutcome, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
-import { schedulePostflight } from "../postflight.ts"
+import { schedulePostflight, startNewPostflightTurn } from "../postflight.ts"
 import type { EventIn } from "../types.ts"
 import { FRUSTRATION_RE, firedSessions, markSessionFired } from "./frustration.ts"
 
@@ -256,11 +256,16 @@ export const onEvent = async (
   // emitted. Fire-and-forget; never blocks event delivery.
   if (e.type === "session.idle") {
     void refreshSessionTitle(runId, ctx.client, ctx)
-    // Run post-flight checks only once the agent goes idle. This avoids
-    // flagging intermediary edit states as failures while the model is still
-    // actively working through a patch sequence. Use immediate scheduling so
-    // failures are attributed to the just-finished turn before next input.
-    schedulePostflight(runId, { immediate: true })
+    // Run post-flight checks only once the agent goes idle. We deliberately
+    // do NOT use immediate scheduling here — opencode can emit transient
+    // `session.idle` events between steps of an agentic loop (subtask
+    // boundaries, compaction pauses, brief lulls before the next tool call),
+    // and firing immediately would run the check suite mid-response. The
+    // debounce window (config.postflight.debounceMs, default 3s) lets us
+    // absorb those: any new `tool.execute.before` cancels the pending timer,
+    // and the per-turn dedup in `schedulePostflight` guarantees at most one
+    // run per AI response regardless of how many idle events fire.
+    schedulePostflight(runId)
   }
 
   if (e.type === "permission.replied" && props.reply === "reject") {
@@ -328,6 +333,9 @@ export const onEvent = async (
     })
     await flush()
     setLatestUserMessage(text)
+    // A new user message starts a new AI turn — reset the per-turn postflight
+    // dedup so the next `session.idle` can schedule a fresh run.
+    startNewPostflightTurn(runId)
     await postRejection(runId, {
       reason: snippet,
       failure_mode: "frustrated_user",
@@ -361,6 +369,9 @@ export const onEvent = async (
     if (text) {
       setLatestUserMessage(text)
       void refreshSessionTitle(runId, ctx.client, ctx)
+      // A new user message starts a new AI turn — reset the per-turn
+      // postflight dedup so the next `session.idle` can schedule a fresh run.
+      startNewPostflightTurn(runId)
     }
     return
   } else if (e.type === "session.updated") {
@@ -393,6 +404,10 @@ export const onEvent = async (
         // Eagerly refresh the session title on the first user message so
         // the dashboard doesn't sit on "Untitled chat" until session.idle.
         void refreshSessionTitle(runId, ctx.client, ctx)
+        // A new user message marks the start of a fresh AI turn — reset
+        // the per-turn postflight dedup so the next `session.idle` (after
+        // the AI is fully done) can schedule exactly one postflight run.
+        startNewPostflightTurn(runId)
       }
     }
     return
