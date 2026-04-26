@@ -236,10 +236,13 @@ if ! grep -q '^AAG_URL=' "$ENV_FILE" 2>/dev/null; then
   okay "wrote AAG_URL=http://localhost:4000 to $ENV_FILE"
 fi
 
-# 6b. optional Gemini key (LLM enhancer). Skip if --no-prompt, no /dev/tty,
+# 6b. optional Gemini key. When supplied, configures BOTH the LLM enhancer
+#     (Gemma classifier) AND the embedding provider (Google text-embedding-004,
+#     768-d, free tier on the same key). Skip if --no-prompt, no /dev/tty,
 #     or the key is already set in the calling shell or service .env.
 SERVICE_ENV="$REPO_DIR/.env"
 GEMMA_CONFIGURED=0
+EMBED_PROVIDER_CHANGED=0
 
 write_gemma_env() {
   # $1 = key
@@ -251,6 +254,27 @@ write_gemma_env() {
   } >> "$SERVICE_ENV"
 }
 
+# Idempotent: replace any existing EMBED_PROVIDER= line, otherwise append.
+# Returns 0 if the value changed (caller should run `embed-reset`), 1 otherwise.
+set_embed_provider() {
+  # $1 = provider (stub|local|openai|gemini)
+  local desired="$1"
+  local current=""
+  if [ -f "$SERVICE_ENV" ]; then
+    current="$(grep -E '^EMBED_PROVIDER=' "$SERVICE_ENV" 2>/dev/null | tail -1 | cut -d= -f2-)"
+  fi
+  if [ "$current" = "$desired" ]; then
+    return 1
+  fi
+  if [ -f "$SERVICE_ENV" ] && grep -qE '^EMBED_PROVIDER=' "$SERVICE_ENV"; then
+    sed -i.bak -E "s|^EMBED_PROVIDER=.*|EMBED_PROVIDER=$desired|" "$SERVICE_ENV" \
+      && rm -f "$SERVICE_ENV.bak"
+  else
+    printf '\n# Autopsy embeddings\nEMBED_PROVIDER=%s\n' "$desired" >> "$SERVICE_ENV"
+  fi
+  return 0
+}
+
 if grep -qE '^GEMINI_API_KEY=.+' "$SERVICE_ENV" 2>/dev/null; then
   GEMMA_CONFIGURED=1
   okay "Gemini key already in $SERVICE_ENV (LLM enhancer enabled)"
@@ -259,22 +283,50 @@ elif [ -n "${GEMINI_API_KEY:-}" ]; then
   GEMMA_CONFIGURED=1
   okay "wrote GEMINI_API_KEY (from env) to $SERVICE_ENV"
 elif [ "$NO_PROMPT" -eq 0 ] && [ -e /dev/tty ]; then
-  printf '\n%sLLM enhancer (optional)%s\n' "$BOLD" "$RESET"
-  printf '  Autopsy works fine without it (deterministic classifier only).\n'
-  printf '  To enable LLM-augmented failure analysis, paste a Gemini API key from\n'
-  printf '  %shttps://ai.google.dev%s. Press Enter to skip.\n\n' "$DIM" "$RESET"
+  printf '\n%sGemini API key (optional, recommended)%s\n' "$BOLD" "$RESET"
+  printf '  Enables LLM-augmented failure analysis AND semantic-similarity\n'
+  printf '  retrieval (Google text-embedding-004, free tier).\n'
+  printf '  Without it, retrieval falls back to deterministic stub embeddings\n'
+  printf '  that only match byte-identical task strings.\n'
+  printf '  Get a key at %shttps://ai.google.dev%s. Press Enter to skip.\n\n' "$DIM" "$RESET"
   printf '  Gemini API key: '
   GEMINI_INPUT=""
   IFS= read -r GEMINI_INPUT < /dev/tty || GEMINI_INPUT=""
   if [ -n "$GEMINI_INPUT" ]; then
     write_gemma_env "$GEMINI_INPUT"
     GEMMA_CONFIGURED=1
-    okay "wrote Gemini key to $SERVICE_ENV (LLM enhancer enabled)"
+    okay "wrote Gemini key to $SERVICE_ENV (LLM enhancer + embeddings)"
   else
-    okay "skipped — running with deterministic classifier only"
+    okay "skipped — running with deterministic classifier + stub embeddings"
   fi
 else
-  log "skipping Gemini prompt (deterministic classifier only)"
+  log "skipping Gemini prompt (deterministic classifier + stub embeddings)"
+fi
+
+# Flip embeddings to gemini when (and only when) the key is configured.
+# This must happen before the service starts so verify_vector_dim() doesn't
+# crash on the dim mismatch baked into contracts/db-schema.sql (vector(384)).
+if [ "$GEMMA_CONFIGURED" -eq 1 ]; then
+  if set_embed_provider gemini; then
+    EMBED_PROVIDER_CHANGED=1
+    okay "set EMBED_PROVIDER=gemini in $SERVICE_ENV (768-d embeddings)"
+  fi
+fi
+
+# Recreate the embeddings table at the right dim when we just flipped the
+# provider. Destructive in theory, but on a fresh install the table is empty
+# (or doesn't exist yet) so nothing of value is lost. Skipped silently when
+# scripts/embed-reset.py isn't bundled (e.g. older repo checkouts).
+if [ "$EMBED_PROVIDER_CHANGED" -eq 1 ] \
+    && [ -f "$REPO_DIR/scripts/embed-reset.py" ]; then
+  log "recreating embeddings table to match EMBED_PROVIDER=gemini (uv run embed-reset.py)"
+  if ( cd "$REPO_DIR/service" && uv run --quiet python ../scripts/embed-reset.py ) \
+      >"$RUN_DIR/embed-reset.log" 2>&1; then
+    okay "embeddings table recreated at 768-d"
+  else
+    warn "embed-reset failed; service may refuse to start with EMBED_PROVIDER=gemini."
+    warn "  see $RUN_DIR/embed-reset.log; you can re-run \`make embed-reset\` manually."
+  fi
 fi
 
 # 7. start service + dashboard
@@ -360,8 +412,10 @@ fi
 # 8. final banner
 if [ "$GEMMA_CONFIGURED" -eq 1 ]; then
   LLM_LINE="  ${BOLD}LLM${RESET}        Gemma via Google AI Studio (key in $SERVICE_ENV)"
+  EMBED_LINE="  ${BOLD}Embeddings${RESET} Google text-embedding-004 (768-d, same key)"
 else
   LLM_LINE="  ${BOLD}LLM${RESET}        ${DIM}deterministic classifier only — re-run to add a Gemini key${RESET}"
+  EMBED_LINE="  ${BOLD}Embeddings${RESET} ${DIM}stub (byte-identical match only) — add a Gemini key for semantic similarity${RESET}"
 fi
 
 cat <<EOF
@@ -374,6 +428,7 @@ ${OK}Autopsy is up.${RESET}
   ${BOLD}Postgres${RESET}   localhost:5432  ${DIM}db=aag user=aag pass=aag${RESET}
   ${BOLD}.env${RESET}       AAG_URL=http://localhost:4000
 $LLM_LINE
+$EMBED_LINE
 
 ${BOLD}Files${RESET}
   $REPO_DIR                  ${DIM}# cloned repo${RESET}
