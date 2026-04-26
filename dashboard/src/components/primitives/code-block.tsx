@@ -13,7 +13,7 @@ export function CodeBlock({
   return (
     <pre
       className={cn(
-        "relative overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-[11px] leading-5 font-mono scrollbar-thin",
+        "relative max-h-80 overflow-auto rounded-md border border-border bg-muted/40 p-3 text-[11px] leading-5 font-mono scrollbar-thin",
         className,
       )}
     >
@@ -22,7 +22,7 @@ export function CodeBlock({
           {language}
         </span>
       ) : null}
-      <code className="text-foreground/90 whitespace-pre">{children}</code>
+      <code className="text-foreground/90 whitespace-pre-wrap [overflow-wrap:anywhere]">{children}</code>
     </pre>
   )
 }
