@@ -7,7 +7,6 @@ import { toast } from "sonner"
 import {
   Activity,
   GitBranch,
-  Link2,
   Network,
   RefreshCw,
   Search,
@@ -505,28 +504,6 @@ export function GraphExplorer() {
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-1 border-l border-border/50 pl-2 ml-1">
-              <Button
-                variant={edgeCreateMode ? "default" : "ghost"}
-                size="icon"
-                onClick={() => {
-                  if (edgeCreateMode) {
-                    cancelEdgeCreate()
-                  } else {
-                    setEdgeCreateMode(true)
-                    setSelectedId("")
-                    toast.info("Click a source node to start")
-                  }
-                }}
-                aria-label={edgeCreateMode ? "Cancel connection" : "Add connection"}
-                className={cn(
-                  "h-10 w-10",
-                  edgeCreateMode ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                )}
-              >
-                {edgeCreateMode ? <X className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
-              </Button>
-            </div>
           </Card>
         </div>
       </div>
