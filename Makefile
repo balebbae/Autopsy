@@ -101,6 +101,17 @@ site-pack: ## Build dist/autopsy-surf.zip for direct upload to Cloudflare Pages 
 	@echo "  built dist/autopsy-surf.zip"
 	@echo "  upload at: https://dash.cloudflare.com/?to=/:account/pages/new/upload"
 
+# --- install.autopsy.surf landing -----------------------------------------
+
+web-pack: ## Sync install.sh into web/ and build dist/install-autopsy-surf.zip for Cloudflare Pages upload
+	cp install.sh web/install.sh
+	mkdir -p dist
+	rm -f dist/install-autopsy-surf.zip
+	cd web && zip -r -X ../dist/install-autopsy-surf.zip . -x '.DS_Store' '*.swp'
+	@echo ""
+	@echo "  built dist/install-autopsy-surf.zip"
+	@echo "  upload at: https://dash.cloudflare.com/?to=/:account/pages/new/upload"
+
 clean: ## Remove generated artifacts
 	rm -rf service/.venv service/.pytest_cache service/.ruff_cache
 	rm -rf plugin/node_modules plugin/dist
