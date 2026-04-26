@@ -120,6 +120,26 @@ function filterByRun(
   return { nodes: runNodes, edges: runEdges }
 }
 
+// Drop nodes that aren't endpoints of any edge. These slip in two ways:
+//   1. test fixtures (`failure_mode=minor_failure`, `change_pattern=added_field`)
+//      that share the dev DB and leave behind nodes without edges.
+//   2. real-data writer paths that upsert a node before discovering it has no
+//      neighbors (e.g. extraction.components without any matching File→Component
+//      mapping; FailureMode rows on failure_cases that have no symptoms).
+// Either way, an orphan can never be retrieved by Graph RAG (the recursive CTE
+// in traversal.py walks edges), so it has no business in the force view.
+function dropOrphans(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const connected = new Set<string>()
+  for (const e of edges) {
+    connected.add(e.source_id)
+    connected.add(e.target_id)
+  }
+  return { nodes: nodes.filter((n) => connected.has(n.id)), edges }
+}
+
 type ViewKey = "force" | "timeline" | "branched" | "retrieval"
 
 function parseView(v: string | null): ViewKey {
@@ -225,10 +245,12 @@ export function GraphExplorer() {
 
   const payload: GraphPayload | null = React.useMemo(() => {
     if (!baseGraph) return null
-    if (runFilter) {
-      return filterByRun(baseGraph.nodes, baseGraph.edges, runFilter)
-    }
-    return baseGraph
+    const scoped = runFilter
+      ? filterByRun(baseGraph.nodes, baseGraph.edges, runFilter)
+      : baseGraph
+    // filterByRun already keeps only endpoint nodes; the unfiltered case can
+    // contain orphans, so apply the dedicated filter there.
+    return runFilter ? scoped : dropOrphans(scoped.nodes, scoped.edges)
   }, [baseGraph, runFilter])
 
   const fgRef = React.useRef<ForceGraphMethods | undefined>(undefined)
@@ -465,7 +487,7 @@ export function GraphExplorer() {
         <div className={cn("pointer-events-auto flex items-center gap-2", view !== "force" && "hidden")}>
             <div className="rounded-lg border border-border bg-card/80 backdrop-blur-md px-3 py-1.5 shadow-sm">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              {runFilter ? "Failure graph · run focus" : "Failure graph"}
+              {runFilter ? "Graph RAG · run focus" : "Graph RAG surface"}
             </p>
             <div className="flex items-baseline gap-3">
               <span className="text-sm font-semibold tabular-nums">
@@ -481,7 +503,9 @@ export function GraphExplorer() {
               </Badge>
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              Drag to pan · scroll to zoom · click to select
+              {runFilter
+                ? "Subgraph emitted by this run · drag · scroll · click"
+                : "Edges preflight walks via typed CTE · drag · scroll · click"}
             </p>
           </div>
         </div>
