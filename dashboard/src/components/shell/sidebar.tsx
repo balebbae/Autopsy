@@ -5,8 +5,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Activity,
+  BookOpen,
   Network,
-  ShieldCheck,
 } from "lucide-react"
 
 import { LogoMark } from "@/components/brand/logo-mark"
@@ -15,7 +15,6 @@ import { cn } from "@/lib/utils"
 const navItems = [
   { href: "/", label: "Runs", icon: Activity, match: (p: string) => p === "/" || p.startsWith("/runs") },
   { href: "/graph", label: "Failure Graph", icon: Network, match: (p: string) => p.startsWith("/graph") },
-  { href: "/preflight", label: "Preflight", icon: ShieldCheck, match: (p: string) => p.startsWith("/preflight") },
 ] as const
 
 export function Sidebar() {
@@ -56,12 +55,16 @@ export function Sidebar() {
             </Link>
           )
         })}
+        <a
+          href="https://autopsy.surf"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+        >
+          <BookOpen className="h-4 w-4" />
+          <span>Go to Docs</span>
+        </a>
       </nav>
-
-      <div className="mt-auto px-5 py-4 text-[11px] leading-relaxed text-muted-foreground border-t border-border">
-        <p className="font-mono opacity-70">v0.1 · localhost:4000</p>
-        <p className="mt-1">Forensic recorder for opencode runs.</p>
-      </div>
     </aside>
   )
 }
