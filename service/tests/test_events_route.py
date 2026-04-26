@@ -12,6 +12,7 @@ when the same engine pool is touched twice).
 
 from __future__ import annotations
 
+import asyncio
 import socket
 from time import time
 from urllib.parse import urlparse
@@ -411,6 +412,74 @@ async def test_permission_reject_does_not_terminate_run() -> None:
             assert run is not None
             assert run.status == "active", "permission.reject must not end the run"
             assert run.ended_at is None
+    finally:
+        await _delete_run(run_id)
+        await dispose()
+
+
+async def test_concurrent_batches_for_same_run_dont_conflict() -> None:
+    """Two POST /v1/events for the same brand-new run_id, fired in parallel,
+    must both return 202 — no runs_pkey UniqueViolation.
+
+    The plugin's fire-and-forget batcher routinely flushes two batches
+    within a few ms when a new opencode session starts (session.created in
+    one batch, session.idle / tool events in the next). Each request gets
+    its own AsyncSession; before the fix, both would miss session.get(Run),
+    both would session.add(Run(...)), and the second's autoflush would blow
+    up with `duplicate key value violates unique constraint "runs_pkey"`.
+    """
+    run_id = f"test-events-{uuid4().hex[:8]}"
+    project = f"test-events-proj-{uuid4().hex[:6]}"
+    worktree = "/tmp/test-events"
+    t0 = int(time() * 1000)
+
+    def _batch(suffix: str, ts: int, ev_type: str) -> dict:
+        return {
+            "events": [
+                {
+                    "event_id": f"{run_id}-evt-{suffix}",
+                    "run_id": run_id,
+                    "project": project,
+                    "worktree": worktree,
+                    "ts": ts,
+                    "type": ev_type,
+                    "properties": {
+                        "sessionID": run_id,
+                        "info": {
+                            "id": run_id,
+                            "title": "concurrent",
+                            "directory": worktree,
+                        },
+                    },
+                }
+            ]
+        }
+
+    try:
+        async with _async_client() as ac:
+            r1, r2 = await asyncio.gather(
+                ac.post("/v1/events", json=_batch("001", t0, "session.created")),
+                ac.post("/v1/events", json=_batch("002", t0 + 5, "session.idle")),
+            )
+        assert r1.status_code == 202, r1.text
+        assert r2.status_code == 202, r2.text
+
+        sm = sessionmaker()
+        async with sm() as session:
+            count = (
+                await session.execute(
+                    select(func.count()).select_from(Run).where(Run.run_id == run_id)
+                )
+            ).scalar_one()
+            assert count == 1
+            ev_count = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(RunEvent)
+                    .where(RunEvent.run_id == run_id)
+                )
+            ).scalar_one()
+            assert ev_count == 2
     finally:
         await _delete_run(run_id)
         await dispose()

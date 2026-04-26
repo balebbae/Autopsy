@@ -71,52 +71,67 @@ async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
       - session.updated: pick up opencode's auto-generated title
       - message.part.updated (user text): use the user's first message as task
         when the current task is missing or a placeholder.
+
+    Concurrency: the plugin batches events fire-and-forget, so two POST
+    /v1/events for the same run_id can be in flight simultaneously. Each
+    request gets its own AsyncSession; a naive ORM check-then-add races at
+    autoflush time and one side blows up with runs_pkey UniqueViolation. We
+    use INSERT ... ON CONFLICT DO NOTHING for the first-write so Postgres
+    serializes the conflict, then session.get to load the row (ours or the
+    one the concurrent txn just committed) for the field-merge updates.
     """
     existing = await session.get(Run, ev.run_id)
-    if existing is not None:
-        if ev.type == SESSION_CREATED:
-            info = ev.properties.get("info") or {}
-            existing.task = existing.task or info.get("title")
-            existing.worktree = existing.worktree or info.get("directory") or ev.worktree
-        elif ev.type == SESSION_UPDATED:
-            info = ev.properties.get("info") or {}
-            new_title = info.get("title")
-            # Refresh title if opencode generated a real one (non-placeholder).
-            if new_title and not _is_placeholder_task(new_title):
-                existing.task = new_title
-        elif ev.type == MESSAGE_PART_UPDATED and _is_placeholder_task(existing.task):
-            user_text = _extract_user_text(ev.properties)
-            if user_text:
-                existing.task = _derive_task_name(user_text)
-        elif ev.type == AUTOPSY_TASK_SET:
-            new_task = ev.properties.get("task")
-            if isinstance(new_task, str) and new_task.strip():
-                # `force=True` means this came from a high-fidelity source
-                # (e.g. opencode's auto-generated session.title) — always
-                # override. Otherwise only upgrade away from a placeholder.
-                forced = bool(ev.properties.get("force"))
-                if forced or _is_placeholder_task(existing.task):
-                    existing.task = _derive_task_name(new_task)
-        return existing
+    if existing is None:
+        info = ev.properties.get("info") or {}
+        # If an autopsy.task.set arrives before session.created, still record
+        # the task so the dashboard never displays a missing/placeholder name.
+        initial_task: str | None = info.get("title")
+        if ev.type == AUTOPSY_TASK_SET:
+            candidate = ev.properties.get("task")
+            if isinstance(candidate, str) and candidate.strip():
+                initial_task = _derive_task_name(candidate)
+        await session.execute(
+            pg_insert(Run)
+            .values(
+                run_id=ev.run_id,
+                project=ev.project,
+                worktree=ev.worktree or info.get("directory"),
+                task=initial_task,
+                started_at=ev.ts,
+                status="active",
+            )
+            .on_conflict_do_nothing(index_elements=["run_id"])
+        )
+        existing = await session.get(Run, ev.run_id)
+        if existing is None:
+            # Should be impossible: we just inserted (or it pre-existed
+            # under a concurrent txn that's now visible to us).
+            raise RuntimeError(f"upsert_run: failed to load run {ev.run_id}")
 
-    info = ev.properties.get("info") or {}
-    # If an autopsy.task.set arrives before session.created, still record the
-    # task so the dashboard never displays a missing/placeholder name.
-    initial_task: str | None = info.get("title")
-    if ev.type == AUTOPSY_TASK_SET:
-        candidate = ev.properties.get("task")
-        if isinstance(candidate, str) and candidate.strip():
-            initial_task = _derive_task_name(candidate)
-    run = Run(
-        run_id=ev.run_id,
-        project=ev.project,
-        worktree=ev.worktree or info.get("directory"),
-        task=initial_task,
-        started_at=ev.ts,
-        status="active",
-    )
-    session.add(run)
-    return run
+    if ev.type == SESSION_CREATED:
+        info = ev.properties.get("info") or {}
+        existing.task = existing.task or info.get("title")
+        existing.worktree = existing.worktree or info.get("directory") or ev.worktree
+    elif ev.type == SESSION_UPDATED:
+        info = ev.properties.get("info") or {}
+        new_title = info.get("title")
+        # Refresh title if opencode generated a real one (non-placeholder).
+        if new_title and not _is_placeholder_task(new_title):
+            existing.task = new_title
+    elif ev.type == MESSAGE_PART_UPDATED and _is_placeholder_task(existing.task):
+        user_text = _extract_user_text(ev.properties)
+        if user_text:
+            existing.task = _derive_task_name(user_text)
+    elif ev.type == AUTOPSY_TASK_SET:
+        new_task = ev.properties.get("task")
+        if isinstance(new_task, str) and new_task.strip():
+            # `force=True` means this came from a high-fidelity source
+            # (e.g. opencode's auto-generated session.title) — always
+            # override. Otherwise only upgrade away from a placeholder.
+            forced = bool(ev.properties.get("force"))
+            if forced or _is_placeholder_task(existing.task):
+                existing.task = _derive_task_name(new_task)
+    return existing
 
 
 async def insert_event(session: AsyncSession, ev: EventIn) -> bool:
