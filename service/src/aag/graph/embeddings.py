@@ -44,7 +44,8 @@ async def embed(text: str) -> list[float]:
         return _stub_embed(text, settings.embed_dim)
 
     if settings.embed_provider == "local":
-        # Imported lazily so the heavy dep isn't required by default.
+        # _local_model() lazily imports sentence_transformers so the heavy
+        # dep isn't required when EMBED_PROVIDER is "stub" or "openai".
         model = _local_model(settings.embed_model)
         vec = model.encode(text, normalize_embeddings=True).tolist()
         return list(vec)

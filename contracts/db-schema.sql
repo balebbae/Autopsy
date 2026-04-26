@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS runs (
     status           TEXT NOT NULL DEFAULT 'active'
                      CHECK (status IN ('active','approved','rejected','aborted')),
     rejection_reason TEXT,
+    rejection_count  INTEGER NOT NULL DEFAULT 0,
     files_touched    INTEGER NOT NULL DEFAULT 0,
     tool_calls       INTEGER NOT NULL DEFAULT 0,
     summary          TEXT,
@@ -24,9 +25,32 @@ CREATE TABLE IF NOT EXISTS runs (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Idempotent migration: add rejection_count to existing dev databases.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS rejection_count INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS runs_project_idx     ON runs(project);
 CREATE INDEX IF NOT EXISTS runs_status_idx      ON runs(status);
 CREATE INDEX IF NOT EXISTS runs_started_at_idx  ON runs(started_at DESC);
+
+-- =========================================================================
+-- Rejections (one row per user-filed rejection during a thread)
+-- A run may accumulate many rejections without ending; the run only flips to
+-- a terminal status when /v1/runs/{run_id}/outcome is explicitly called.
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS rejections (
+    id              BIGSERIAL PRIMARY KEY,
+    run_id          TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    ts              BIGINT NOT NULL,
+    reason          TEXT NOT NULL,
+    failure_mode    TEXT,
+    symptoms        TEXT,                                 -- comma-separated, plugin-supplied
+    source          TEXT NOT NULL DEFAULT 'plugin'
+                    CHECK (source IN ('plugin','dashboard','manual')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS rejections_run_ts_idx ON rejections(run_id, ts);
 
 CREATE TABLE IF NOT EXISTS run_events (
     id          BIGSERIAL PRIMARY KEY,

@@ -14,8 +14,19 @@ export type RunSummary = {
   status: RunStatus
   task: string | null
   rejection_reason: string | null
+  rejection_count: number
   files_touched: number
   tool_calls: number
+}
+
+export type Rejection = {
+  id: number
+  run_id: string
+  ts: number
+  reason: string
+  failure_mode: string | null
+  symptoms: string | null
+  source: "plugin" | "dashboard" | "manual"
 }
 
 export type RunEvent = {
@@ -59,6 +70,7 @@ export type Run = RunSummary & {
   events: RunEvent[]
   diffs: DiffSnapshot[]
   failure_case: FailureCase | null
+  rejections: Rejection[]
 }
 
 export type GraphNodeType =
