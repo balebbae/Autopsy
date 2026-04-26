@@ -89,7 +89,19 @@ async def on_rejection_filed(run_id: str, *, reason: str) -> None:
 
 
 async def on_run_complete(run_id: str) -> None:
-    async with sessionmaker()() as session:
+    """Classify a finalized run, then write FailureCase, graph evidence, and
+    embeddings as **three independent transactions**.
+
+    Splitting the writes ensures a failure in a later step (most commonly the
+    embeddings step missing its optional ML deps) cannot roll back the work
+    of an earlier step. Graph evidence in particular must survive an
+    embeddings failure so the dashboard's per-run failure-graph view stays
+    populated.
+    """
+    sm = sessionmaker()
+
+    # 1) Classify (read-only) and persist FailureCase.
+    async with sm() as session:
         try:
             ctx, fc = await classifier.classify(session, run_id)
         except Exception:  # noqa: BLE001
@@ -103,21 +115,32 @@ async def on_run_complete(run_id: str) -> None:
             log.info("run %s: no failure symptoms detected", run_id)
             return
 
-        # Persist FailureCase.
         await session.merge(_failure_case_row(fc))
+        await session.commit()
 
-        # Graph + embeddings. Failures here should NOT roll back the FailureCase.
+    # 2) Graph evidence. Independent transaction: failures here do not
+    # affect the FailureCase row already committed above, and successes
+    # here are not undone by a later embeddings failure.
+    async with sm() as session:
         try:
             run = await session.get(Run, run_id)
             if run is not None:
                 extraction = extract(ctx, fc)
                 await gwriter.write(session, run=run, failure_case=fc, extraction=extraction)
-                await gembed.write_for(session, failure_case=fc, run=run, extraction=extraction)
+                await session.commit()
         except Exception:  # noqa: BLE001
-            log.exception("run %s: graph/embedding step failed", run_id)
-            # Roll back only the post-classify writes; commit the FailureCase
-            # via a fresh transaction below.
+            log.exception("run %s: graph write failed", run_id)
             await session.rollback()
-            await session.merge(_failure_case_row(fc))
 
-        await session.commit()
+    # 3) Embeddings. Best-effort: never propagate failures.
+    async with sm() as session:
+        try:
+            run = await session.get(Run, run_id)
+            if run is not None:
+                await gembed.write_for(session, failure_case=fc, run=run, extraction=extraction)
+                await session.commit()
+        except Exception:  # noqa: BLE001
+            log.exception("run %s: embeddings write failed (non-fatal)", run_id)
+            await session.rollback()
+
+    log.info("run %s: classified as %s", run_id, fc.failure_mode)

@@ -16,7 +16,7 @@ import { Separator } from "@/components/ui/separator"
 import { ConfidenceBar } from "@/components/primitives/confidence-bar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { GraphEdge, GraphNode } from "@/lib/api"
-import { nodeStyle } from "./graph-style"
+import { nodeStyle, nodeDisplayName } from "./graph-style"
 
 export function NodeDrawer({
   node,
@@ -76,7 +76,7 @@ export function NodeDrawer({
                   )}
                 </div>
                 <DialogTitle className="text-base font-semibold leading-snug truncate">
-                  {node.name}
+                  {nodeDisplayName(node)}
                 </DialogTitle>
                 <DialogDescription className="font-mono text-[11px] mt-0.5 truncate text-muted-foreground/70">
                   {node.id}
@@ -235,7 +235,7 @@ function EdgeList({
                             style={{ backgroundColor: otherStyle.color }}
                           />
                         )}
-                        {other?.name ?? otherId}
+                        {other ? nodeDisplayName(other) : otherId}
                       </span>
                       {other && (
                         <Badge variant="muted" className="text-[9px] font-mono shrink-0 px-1 py-0">

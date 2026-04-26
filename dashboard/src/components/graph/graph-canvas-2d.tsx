@@ -5,7 +5,7 @@ import dynamic from "next/dynamic"
 import type { ForceGraphMethods } from "react-force-graph-2d"
 
 import type { GraphEdge, GraphNode } from "@/lib/api"
-import { nodeStyle, edgeStyle, type NodeStyleConfig } from "./graph-style"
+import { nodeStyle, nodeDisplayName, edgeStyle, type NodeStyleConfig } from "./graph-style"
 
 const ForceGraph2D = dynamic(
   () => import("react-force-graph-2d").then((m) => m.default),
@@ -266,7 +266,7 @@ export function GraphCanvas2D({
       .filter((n) => visibleNodeTypes.has(n.type))
       .map((n) => ({
         id: n.id,
-        name: n.name,
+        name: nodeDisplayName(n),
         type: n.type,
         style: nodeStyle(n),
         val: nodeSizeFor(n.type),
@@ -462,7 +462,7 @@ export function GraphCanvas2D({
       ctx.textBaseline = "top"
 
       // Truncate name to fit
-      let displayName = n.name
+      let displayName = n.name  // already resolved via nodeDisplayName on FGNode construction
       const maxTextWidth = cardWidth - accentWidth - 14
       while (ctx.measureText(displayName).width > maxTextWidth && displayName.length > 0) {
         displayName = displayName.slice(0, -1)
