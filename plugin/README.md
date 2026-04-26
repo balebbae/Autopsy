@@ -5,7 +5,7 @@ opencode plugin for Agent Autopsy Graph.
 ## What it does
 
 - Mirrors every opencode bus event to the AAG service via `POST /v1/events`
-- On `tool.execute.before` for risky tools, asks `POST /v1/preflight` and may throw to abort
+- On `tool.execute.before` for tools in `AAG_PREFLIGHT_TOOLS` (default: `edit,write,bash,read,grep`), asks `POST /v1/preflight`. On `block: true` it throws a **rich rationale** (citing similar past runs, failure modes, and recommended fixes) to abort the call; on non-blocking risk it emits an `aag.preflight.warned` timeline event. See [Pre-flight context injection](#pre-flight-context-injection) below.
 - On `experimental.chat.system.transform`, injects a preflight warning addendum into the system prompt
 - On `permission.replied` with reject, posts the run outcome + tries to capture rejection feedback
 - On `tool.execute.after` for file-modifying tools (`edit`, `write`, …), debounces and runs a **post-flight code-check suite** (lint / typecheck / test). Any non-zero check files a rejection (`failure_mode=automated_check_failed`) which lights up the dashboard and feeds the next preflight.
@@ -45,6 +45,45 @@ src/
     permission.ts         capture asks + replies + rejection feedback
     system.ts             experimental.chat.system.transform injector
 ```
+
+## Pre-flight context injection
+
+When the LLM is about to call one of the tools listed in `AAG_PREFLIGHT_TOOLS`,
+the plugin pings `POST /v1/preflight` with the current task + tool name + args
+and acts on the response:
+
+| Service response                       | Plugin behavior                                                                                                      |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `block: true`                          | Throw an `Error` whose message cites the matching failure mode, similar past run ids, and recommended fixes. opencode surfaces this as a tool error; the model adapts on its next reasoning step. Also emits `aag.preflight.blocked` for the dashboard. |
+| `risk_level ∈ {low, medium, high}`, no block | Emit `aag.preflight.warned` with the structured fields + `system_addendum`. **Does not throw** — soft warnings ride on the per-turn `experimental.chat.system.transform` injector. |
+| `risk_level: none` or service unreachable / 5xx / timeout | Silent. Fail-open. |
+
+The default tool set covers both **mutating** tools (`edit`, `write`, `bash`)
+where blocking is meaningful, and **exploratory** tools (`read`, `grep`)
+where blocking is rare but the warned-event telemetry still feeds the
+graph and dashboard.
+
+`aag.preflight.warned` events are deduped per `(sessionID, tool, args, risk_level)`
+so the service's TTL cache returning the same response many times in one
+turn doesn't flood the timeline. `aag.preflight.blocked` events are NOT
+deduped — every block attempt is a meaningful intervention.
+
+### Knobs
+
+| Env var                       | Default | Effect                                                                                  |
+| ----------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `AAG_PREFLIGHT_DISABLED`      | `0`     | Set to `1`/`true` to skip preflight entirely — plugin never blocks or warns.            |
+| `AAG_PREFLIGHT_TIMEOUT_MS`    | `800`   | Hard ceiling on the `/v1/preflight` HTTP call. On timeout, fail-open.                   |
+| `AAG_PREFLIGHT_TOOLS`         | `edit,write,bash,read,grep` | Comma-separated tool names to preflight. Override to narrow / widen.        |
+
+### Smoke test
+
+```bash
+bun src/__smoke__/tool-before.smoke.ts
+```
+
+Stub-fetches the AAG service and runs through skip / block / warn / dedup /
+timeout / disabled paths. Prints `ok` and exits 0 on success.
 
 ## Post-flight checks
 
