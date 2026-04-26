@@ -11,7 +11,15 @@ from aag.schemas.graph import (
     GraphNodeOut,
     ImportResult,
 )
-from aag.schemas.preflight import PreflightRequest, PreflightResponse
+from aag.schemas.preflight import (
+    AnnCandidate,
+    PreflightRequest,
+    PreflightResponse,
+    PreflightTrace,
+    PreflightTraceResponse,
+    TraceAggregatedNode,
+    TraceEdge,
+)
 from aag.schemas.runs import (
     DiffSnapshot,
     DiffSnapshotFile,
@@ -40,6 +48,11 @@ __all__ = [
     "Symptom",
     "PreflightRequest",
     "PreflightResponse",
+    "PreflightTrace",
+    "PreflightTraceResponse",
+    "AnnCandidate",
+    "TraceEdge",
+    "TraceAggregatedNode",
     "GraphNodeOut",
     "GraphEdgeOut",
     "ExportBundle",

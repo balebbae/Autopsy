@@ -138,6 +138,59 @@ export type PreflightResponse = {
   system_addendum?: string | null
 }
 
+// Trace mode — returned by POST /v1/preflight/trace. Visualized in the
+// dashboard's Retrieval view (3-stage Graph RAG walk).
+export type AnnCandidate = {
+  run_id: string
+  distance: number
+  status: "rejected" | "approved"
+  project?: string | null
+  age_days: number
+  in_threshold: boolean
+}
+
+export type TraceEdge = {
+  source_id: string
+  target_id: string
+  target_type: string
+  target_name: string
+  edge_type: string
+  depth: number
+  confidence: number
+  decayed_confidence: number
+  evidence_run_id?: string | null
+  age_days: number
+}
+
+export type TraceAggregatedNode = {
+  name: string
+  type: "FailureMode" | "FixPattern" | "ChangePattern"
+  raw_score: number
+  final_score: number
+  freq: number
+}
+
+export type PreflightTrace = {
+  embed_provider: "stub" | "local" | "openai"
+  vector_dim: number
+  similarity_threshold: number
+  half_life_days: number
+  counter_weight: number
+  max_hop_depth: number
+  candidates: AnnCandidate[]
+  rejected_roots: string[]
+  approved_count: number
+  dampening_factor: number
+  edges: TraceEdge[]
+  aggregated: TraceAggregatedNode[]
+  addendum_source: "none" | "template" | "llm"
+}
+
+export type PreflightTraceResponse = {
+  response: PreflightResponse
+  trace: PreflightTrace
+}
+
 const fetchNoStore = (path: string, init?: RequestInit) =>
   fetch(`${baseUrl}${path}`, { cache: "no-store", ...init })
 
@@ -201,6 +254,23 @@ export async function listGraphEdges(opts: {
 export async function postPreflight(req: PreflightRequest): Promise<PreflightResponse | null> {
   try {
     const r = await fetch(`${baseUrl}/v1/preflight`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(req),
+      cache: "no-store",
+    })
+    if (!r.ok) return null
+    return r.json()
+  } catch {
+    return null
+  }
+}
+
+export async function postPreflightTrace(
+  req: PreflightRequest,
+): Promise<PreflightTraceResponse | null> {
+  try {
+    const r = await fetch(`${baseUrl}/v1/preflight/trace`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(req),

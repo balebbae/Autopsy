@@ -41,7 +41,15 @@ from aag.config import get_settings
 from aag.graph import preflight_cache, preflight_synth
 from aag.graph.embeddings import embed
 from aag.models import PreflightHit, Run
-from aag.schemas.preflight import PreflightRequest, PreflightResponse
+from aag.schemas.preflight import (
+    AnnCandidate,
+    PreflightRequest,
+    PreflightResponse,
+    PreflightTrace,
+    PreflightTraceResponse,
+    TraceAggregatedNode,
+    TraceEdge,
+)
 
 log = logging.getLogger(__name__)
 
@@ -472,3 +480,266 @@ async def _persist_hit(
         log.exception("preflight: failed to persist hit for run_id=%s", req.run_id)
         with contextlib.suppress(Exception):
             await session.rollback()
+
+
+# =========================================================================
+# Trace mode — instrumented version of the preflight pipeline.
+#
+# Returns the same PreflightResponse alongside a structured PreflightTrace
+# containing every intermediate the dashboard's Retrieval view needs to
+# visualize Graph RAG: ANN candidates with distances, every edge visited in
+# the recursive CTE, and the final aggregation rows.
+#
+# Bypasses the cache and the preflight_hits persistence step — each call
+# always re-runs the full pipeline so the trace is reproducible. This is
+# acceptable because the trace endpoint is operator-facing (debug /
+# visualization) and never sits on the agent's critical path.
+# =========================================================================
+
+# Per-edge variant of the recursive CTE. Same walk as _HOP_SQL but returns
+# every (source, target) hop instead of aggregating. The dashboard renders
+# these as the typed graph walk.
+_HOP_TRACE_SQL = text(
+    """
+    WITH RECURSIVE hops AS (
+        SELECT
+            CAST(source_id AS TEXT) AS source_id,
+            target_id,
+            type AS edge_type,
+            confidence AS confidence,
+            confidence AS chain_confidence,
+            evidence_run_id,
+            created_at,
+            1 AS depth
+        FROM graph_edges
+        WHERE source_id = ANY(:roots)
+          AND evidence_run_id = ANY(:run_ids)
+
+        UNION ALL
+
+        SELECT
+            CAST(h.target_id AS TEXT) AS source_id,
+            e.target_id,
+            e.type AS edge_type,
+            e.confidence AS confidence,
+            (h.chain_confidence * e.confidence) AS chain_confidence,
+            e.evidence_run_id,
+            e.created_at,
+            h.depth + 1
+        FROM graph_edges e
+        JOIN hops h ON e.source_id = h.target_id
+        WHERE h.depth < :max_depth
+          AND e.evidence_run_id = ANY(:run_ids)
+    )
+    SELECT
+        h.source_id,
+        h.target_id,
+        n.type AS target_type,
+        n.name AS target_name,
+        h.edge_type,
+        h.depth,
+        h.confidence,
+        h.chain_confidence,
+        h.evidence_run_id,
+        GREATEST(EXTRACT(EPOCH FROM (NOW() - h.created_at)) / 86400.0, 0.0) AS age_days
+    FROM hops h
+    JOIN graph_nodes n ON n.id = h.target_id
+    ORDER BY h.depth, h.target_id
+    """
+)
+
+
+async def preflight_trace(  # noqa: PLR0915
+    session: AsyncSession,
+    req: PreflightRequest,
+) -> PreflightTraceResponse:
+    """Run the preflight pipeline with full instrumentation.
+
+    Mirrors :func:`preflight` but returns the intermediates instead of just
+    the wire response. No caching, no persistence, no LLM addendum
+    synthesis (the LLM call is non-deterministic — the trace would lie
+    about its own output if we re-ran it). Templated addendum still runs
+    so the response matches the production wire shape.
+    """
+    settings = get_settings()
+    half_life = max(settings.preflight_half_life_days, 0.5)
+    counter_weight = max(settings.preflight_counter_weight, 0.0)
+
+    trace = PreflightTrace(
+        embed_provider=settings.embed_provider,
+        vector_dim=settings.embed_dim,
+        similarity_threshold=SIMILARITY_THRESHOLD,
+        half_life_days=half_life,
+        counter_weight=counter_weight,
+        max_hop_depth=MAX_HOP_DEPTH,
+    )
+
+    if not req.task or not req.task.strip():
+        return PreflightTraceResponse(response=PreflightResponse(), trace=trace)
+
+    # Stage 1 — vector ANN.
+    vec = await embed(req.task)
+    rows = (
+        await session.execute(
+            _ANN_SQL,
+            {
+                "v": _vec_literal(vec),
+                "k": K,
+                "k_inner": K * _ANN_INNER_LIMIT_FACTOR,
+                "entity_types": _ANN_ENTITY_TYPES,
+                "project": req.project,
+            },
+        )
+    ).all()
+
+    failed_run_ids: list[str] = []
+    approved_count = 0
+    for row in rows:
+        dist = float(row.dist)
+        in_threshold = dist < SIMILARITY_THRESHOLD
+        if in_threshold:
+            if row.status == "rejected":
+                failed_run_ids.append(row.run_id)
+            elif row.status == "approved":
+                approved_count += 1
+        trace.candidates.append(
+            AnnCandidate(
+                run_id=row.run_id,
+                distance=dist,
+                status=row.status,
+                project=row.project,
+                age_days=float(row.age_days),
+                in_threshold=in_threshold,
+            )
+        )
+    trace.rejected_roots = list(failed_run_ids)
+    trace.approved_count = approved_count
+    trace.dampening_factor = 1.0 / (1.0 + counter_weight * approved_count)
+
+    if not failed_run_ids:
+        return PreflightTraceResponse(response=PreflightResponse(), trace=trace)
+
+    # Stage 2 — typed graph traversal, instrumented.
+    roots = [f"Run:{rid}" for rid in failed_run_ids]
+    edge_rows = (
+        await session.execute(
+            _HOP_TRACE_SQL,
+            {
+                "roots": roots,
+                "run_ids": failed_run_ids,
+                "max_depth": MAX_HOP_DEPTH,
+            },
+        )
+    ).all()
+
+    # Aggregate in Python so the per-edge trace and the score buckets
+    # come from the exact same row set.
+    from math import exp
+
+    failure_modes_acc: dict[str, dict[str, float | set[str]]] = {}
+    fix_patterns_acc: dict[str, dict[str, float | set[str]]] = {}
+    change_patterns_acc: dict[str, dict[str, float | set[str]]] = {}
+
+    for row in edge_rows:
+        age_days = float(row.age_days)
+        decayed = float(row.chain_confidence) * exp(-age_days / half_life)
+        trace.edges.append(
+            TraceEdge(
+                source_id=row.source_id,
+                target_id=row.target_id,
+                target_type=row.target_type,
+                target_name=row.target_name,
+                edge_type=row.edge_type,
+                depth=int(row.depth),
+                confidence=float(row.confidence),
+                decayed_confidence=decayed,
+                evidence_run_id=row.evidence_run_id,
+                age_days=age_days,
+            )
+        )
+
+        bucket = None
+        if row.target_type == "FailureMode":
+            bucket = failure_modes_acc
+        elif row.target_type == "FixPattern":
+            bucket = fix_patterns_acc
+        elif row.target_type == "ChangePattern":
+            bucket = change_patterns_acc
+        if bucket is None:
+            continue
+        slot = bucket.setdefault(row.target_name, {"sum": 0.0, "count": 0.0, "runs": set()})
+        slot["sum"] = float(slot["sum"]) + decayed
+        slot["count"] = float(slot["count"]) + 1.0
+        runs = slot["runs"]
+        if isinstance(runs, set) and row.evidence_run_id:
+            runs.add(row.evidence_run_id)
+
+    def _emit(
+        acc: dict[str, dict[str, float | set[str]]],
+        node_type: str,
+        dampen: float,
+    ) -> list[TraceAggregatedNode]:
+        out: list[TraceAggregatedNode] = []
+        for name, slot in acc.items():
+            count = float(slot["count"])
+            avg_conf = float(slot["sum"]) / count if count > 0 else 0.0
+            runs = slot["runs"]
+            freq = len(runs) if isinstance(runs, set) else 0
+            raw = float(freq) * avg_conf
+            out.append(
+                TraceAggregatedNode(
+                    name=name,
+                    type=node_type,  # type: ignore[arg-type]
+                    raw_score=raw,
+                    final_score=raw * dampen,
+                    freq=freq,
+                )
+            )
+        out.sort(key=lambda n: n.final_score, reverse=True)
+        return out
+
+    fm = _emit(failure_modes_acc, "FailureMode", trace.dampening_factor)
+    fp = _emit(fix_patterns_acc, "FixPattern", 1.0)
+    cp = _emit(change_patterns_acc, "ChangePattern", 1.0)
+    trace.aggregated = fm + fp + cp
+
+    # Build the response from the same aggregates so the wire shape exactly
+    # matches what /v1/preflight would return for this task.
+    failure_modes = [(n.name, n.final_score) for n in fm]
+    fix_patterns = [(n.name, n.final_score) for n in fp]
+
+    top_failure_score = failure_modes[0][1] if failure_modes else 0.0
+    if top_failure_score >= RISK_HIGH_THRESHOLD:
+        risk_level: str = "high"
+    elif top_failure_score >= RISK_MEDIUM_THRESHOLD:
+        risk_level = "medium"
+    elif failure_modes:
+        risk_level = "low"
+    else:
+        risk_level = "none"
+
+    similar_runs = list(failed_run_ids)
+    missing_followups = [name for name, _ in failure_modes[:3]]
+    recommended_checks = [name for name, _ in fix_patterns[:3]]
+    addendum = _template_addendum(failure_modes, missing_followups, recommended_checks)
+    if addendum is not None:
+        trace.addendum_source = "template"
+
+    block = _should_block(top_failure_score, settings.preflight_block_threshold)
+    reason: str | None = None
+    if block and failure_modes:
+        reason = (
+            f"Autopsy: similar past tasks failed with "
+            f"{failure_modes[0][0]} (score {top_failure_score:.2f})."
+        )
+
+    response = PreflightResponse(
+        risk_level=risk_level,  # type: ignore[arg-type]
+        block=block,
+        reason=reason,
+        similar_runs=similar_runs,
+        missing_followups=missing_followups,
+        recommended_checks=recommended_checks,
+        system_addendum=addendum,
+    )
+    return PreflightTraceResponse(response=response, trace=trace)
