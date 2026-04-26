@@ -25,14 +25,21 @@ def _clear_cache():
     preflight_cache.clear()
 
 
+def _wrap(resp: PreflightResponse) -> preflight_cache.CachedPreflight:
+    """Wrap a PreflightResponse in the structured cache entry shape."""
+    return preflight_cache.CachedPreflight(response=resp)
+
+
 def test_cache_get_miss_returns_none():
     assert preflight_cache.get("proj", "task") is None
 
 
 def test_cache_get_after_put_returns_value():
     resp = PreflightResponse(risk_level="low", system_addendum="hi")
-    preflight_cache.put("proj", "task A", resp, ttl_seconds=300)
-    assert preflight_cache.get("proj", "task A") is resp
+    preflight_cache.put("proj", "task A", _wrap(resp), ttl_seconds=300)
+    cached = preflight_cache.get("proj", "task A")
+    assert cached is not None
+    assert cached.response is resp
 
 
 def test_cache_scopes_by_project():
@@ -41,21 +48,25 @@ def test_cache_scopes_by_project():
     """
     resp_a = PreflightResponse(risk_level="high", system_addendum="A")
     resp_b = PreflightResponse(risk_level="none", system_addendum="B")
-    preflight_cache.put("proj-a", "shared task", resp_a, ttl_seconds=300)
-    preflight_cache.put("proj-b", "shared task", resp_b, ttl_seconds=300)
-    assert preflight_cache.get("proj-a", "shared task") is resp_a
-    assert preflight_cache.get("proj-b", "shared task") is resp_b
+    preflight_cache.put("proj-a", "shared task", _wrap(resp_a), ttl_seconds=300)
+    preflight_cache.put("proj-b", "shared task", _wrap(resp_b), ttl_seconds=300)
+    cached_a = preflight_cache.get("proj-a", "shared task")
+    cached_b = preflight_cache.get("proj-b", "shared task")
+    assert cached_a is not None and cached_a.response is resp_a
+    assert cached_b is not None and cached_b.response is resp_b
 
 
 def test_cache_handles_none_project():
     resp = PreflightResponse(risk_level="medium")
-    preflight_cache.put(None, "task", resp, ttl_seconds=300)
-    assert preflight_cache.get(None, "task") is resp
+    preflight_cache.put(None, "task", _wrap(resp), ttl_seconds=300)
+    cached = preflight_cache.get(None, "task")
+    assert cached is not None
+    assert cached.response is resp
 
 
 def test_cache_zero_ttl_is_noop():
     resp = PreflightResponse(risk_level="low")
-    preflight_cache.put("proj", "task", resp, ttl_seconds=0)
+    preflight_cache.put("proj", "task", _wrap(resp), ttl_seconds=0)
     assert preflight_cache.get("proj", "task") is None
 
 
@@ -64,7 +75,7 @@ def test_cache_expires():
     import time
 
     resp = PreflightResponse(risk_level="low")
-    preflight_cache.put("proj", "task", resp, ttl_seconds=300)
+    preflight_cache.put("proj", "task", _wrap(resp), ttl_seconds=300)
     # Force expiry by patching monotonic forward.
     with patch.object(time, "monotonic", return_value=time.monotonic() + 10_000):
         assert preflight_cache.get("proj", "task") is None
@@ -78,7 +89,7 @@ def test_cache_evicts_oldest_at_capacity():
             preflight_cache.put(
                 "p",
                 f"task-{i}",
-                PreflightResponse(risk_level="low"),
+                _wrap(PreflightResponse(risk_level="low")),
                 ttl_seconds=300,
             )
         # Earliest two should be gone.
@@ -88,6 +99,26 @@ def test_cache_evicts_oldest_at_capacity():
         assert preflight_cache.get("p", "task-2") is not None
         assert preflight_cache.get("p", "task-3") is not None
         assert preflight_cache.get("p", "task-4") is not None
+
+
+def test_cache_carries_structured_data_for_persistence():
+    """The cache also stores top_failure_score / failure_modes / fix_patterns
+    so the /v1/preflight handler can persist a hit row on cache-hit without
+    re-running the graph traversal."""
+    resp = PreflightResponse(risk_level="medium", system_addendum="x")
+    entry = preflight_cache.CachedPreflight(
+        response=resp,
+        top_failure_score=2.4,
+        failure_modes=[("incomplete_schema_change", 2.4)],
+        fix_patterns=[("regenerate_types", 1.7)],
+    )
+    preflight_cache.put("proj", "task", entry, ttl_seconds=300)
+    cached = preflight_cache.get("proj", "task")
+    assert cached is not None
+    assert cached.response is resp
+    assert cached.top_failure_score == pytest.approx(2.4)
+    assert cached.failure_modes == [("incomplete_schema_change", 2.4)]
+    assert cached.fix_patterns == [("regenerate_types", 1.7)]
 
 
 # --- block knob ----------------------------------------------------------

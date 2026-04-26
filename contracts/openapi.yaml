@@ -322,6 +322,14 @@ components:
           description: "Number of rejections filed against this still-active or terminal run."
         files_touched: { type: integer, default: 0 }
         tool_calls: { type: integer, default: 0 }
+        preflight_hit_count:
+          type: integer
+          default: 0
+          description: "Count of /v1/preflight calls that returned non-none risk for this run."
+        preflight_blocked_count:
+          type: integer
+          default: 0
+          description: "Subset of preflight_hit_count where the call also blocked a tool execution."
 
     Run:
       allOf:
@@ -340,6 +348,15 @@ components:
             rejections:
               type: array
               items: { $ref: "#/components/schemas/Rejection" }
+            preflight_hits:
+              type: array
+              items: { $ref: "#/components/schemas/PreflightHit" }
+              description: |
+                Persisted record of every /v1/preflight call that returned
+                non-none risk for this run. The dashboard renders one badge
+                per hit on the run row + a detail panel showing the
+                similar past runs and the prose injected into the agent's
+                system prompt.
 
     Rejection:
       type: object
@@ -390,6 +407,50 @@ components:
         failure_mode: { type: string }
         fix_pattern: { type: string, nullable: true }
         summary: { type: string, nullable: true }
+
+    PreflightHit:
+      type: object
+      required: [id, run_id, ts, task, risk_level, top_failure_score]
+      properties:
+        id: { type: integer }
+        run_id: { type: string }
+        ts: { type: integer, description: "unix ms" }
+        task: { type: string, description: "Task / user message that triggered the preflight call" }
+        risk_level: { type: string, enum: [low, medium, high] }
+        top_failure_score: { type: number, format: float }
+        blocked:
+          type: boolean
+          default: false
+          description: "True if the call originated from `tool.execute.before` AND the score exceeded PREFLIGHT_BLOCK_THRESHOLD."
+        tool: { type: string, nullable: true, description: "Tool name when blocked from tool.execute.before, else null." }
+        args:
+          type: object
+          additionalProperties: true
+          nullable: true
+        similar_runs:
+          type: array
+          items: { type: string }
+          description: "Run IDs that the ANN search matched."
+        top_failure_modes:
+          type: array
+          items:
+            type: object
+            required: [name, score]
+            properties:
+              name: { type: string }
+              score: { type: number, format: float }
+        top_fix_patterns:
+          type: array
+          items:
+            type: object
+            required: [name, score]
+            properties:
+              name: { type: string }
+              score: { type: number, format: float }
+        addendum:
+          type: string
+          nullable: true
+          description: "The prose actually pushed into the agent's system prompt array (template or LLM-synthesized)."
 
     PreflightRequest:
       type: object

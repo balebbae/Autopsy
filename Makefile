@@ -85,6 +85,9 @@ seed: ## Seed the graph with synthetic failure cases via the public API
 replay: ## Replay a fixture run into POST /v1/events
 	cd service && uv run python ../scripts/replay-fixture.py ../contracts/fixtures/run-rejected-schema.json
 
+trace: ## Seed runs, then call /v1/preflight on each to verify the closed loop end-to-end
+	cd service && uv run python ../scripts/trace-preflight.py
+
 reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
 	cd service && uv run python ../scripts/reindex.py
 

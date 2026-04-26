@@ -25,6 +25,7 @@ from aag.models import (
     Embedding,
     FailureCase,
     GraphNode,
+    PreflightHit,
     Run,
     RunEvent,
 )
@@ -129,6 +130,10 @@ async def _cleanup(run_id: str) -> None:
         # match on LIKE so they're removed too.
         await session.execute(delete(Embedding).where(Embedding.entity_id.like(f"{run_id}%")))
         await session.execute(delete(FailureCase).where(FailureCase.run_id == run_id))
+        # PreflightHit has FK ON DELETE CASCADE on runs.run_id, but we
+        # also delete in case the parent run is preserved (e.g. tests
+        # seeding multiple hits and reusing the run).
+        await session.execute(delete(PreflightHit).where(PreflightHit.run_id == run_id))
         await session.execute(delete(GraphNode).where(GraphNode.id == f"Run:{run_id}"))
         await session.execute(delete(Run).where(Run.run_id == run_id))
         await session.commit()
@@ -543,6 +548,110 @@ async def test_preflight_hybrid_retrieval_via_patch() -> None:
         assert failed_id in resp.similar_runs
     finally:
         await _cleanup(failed_id)
+
+
+async def test_preflight_persists_hit_when_run_id_set() -> None:
+    """Every /v1/preflight call that returns non-none risk for a run that
+    actually exists must persist a row in ``preflight_hits``. The dashboard
+    keys the green "Autopsy fired" badge off this table.
+    """
+    from sqlalchemy import select
+
+    from aag.graph import preflight_cache  # noqa: PLC0415
+
+    run_id = await _seed_one()
+    try:
+        sm = sessionmaker()
+        async with sm() as session:
+            resp = await preflight(
+                session,
+                PreflightRequest(
+                    task=SCHEMA_TASK,
+                    project="autopsy-tests",
+                    run_id=run_id,
+                ),
+            )
+        assert resp.risk_level != "none"
+
+        async with sm() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(PreflightHit).where(PreflightHit.run_id == run_id)
+                    )
+                ).scalars()
+            )
+        assert len(rows) == 1
+        hit = rows[0]
+        assert hit.risk_level == resp.risk_level
+        assert hit.task == SCHEMA_TASK
+        assert hit.blocked is False
+        assert run_id in hit.similar_runs
+        assert hit.addendum == resp.system_addendum
+        assert hit.top_failure_modes, "expected at least one failure mode"
+        # JSONB arrays come back as plain lists of dicts
+        assert all("name" in fm and "score" in fm for fm in hit.top_failure_modes)
+    finally:
+        preflight_cache.clear()
+        await _cleanup(run_id)
+
+
+async def test_preflight_persists_hit_on_cache_hit() -> None:
+    """Cache hits must also persist a row — the cache short-circuits the
+    expensive graph work, but each agent-side call deserves its own
+    ``preflight_hits`` row so the dashboard sees one badge per check.
+    """
+    from sqlalchemy import select
+
+    from aag.graph import preflight_cache  # noqa: PLC0415
+
+    run_id = await _seed_one()
+    try:
+        sm = sessionmaker()
+        # First call populates the cache + writes one row.
+        async with sm() as session:
+            await preflight(
+                session,
+                PreflightRequest(
+                    task=SCHEMA_TASK,
+                    project="autopsy-tests",
+                    run_id=run_id,
+                ),
+            )
+
+        # Second call should hit the cache (no embed) but still persist.
+        async with sm() as session:
+            await preflight(
+                session,
+                PreflightRequest(
+                    task=SCHEMA_TASK,
+                    project="autopsy-tests",
+                    run_id=run_id,
+                    tool="edit",
+                    args={"filePath": "src/x.ts"},
+                ),
+            )
+
+        async with sm() as session:
+            rows = list(
+                (
+                    await session.execute(
+                        select(PreflightHit)
+                        .where(PreflightHit.run_id == run_id)
+                        .order_by(PreflightHit.id)
+                    )
+                ).scalars()
+            )
+        assert len(rows) == 2
+        # Second row should reflect the tool + args from the cache-hit call.
+        assert rows[1].tool == "edit"
+        assert rows[1].args == {"filePath": "src/x.ts"}
+        # And both rows carry identical similar_runs / addendum (same cache).
+        assert rows[0].similar_runs == rows[1].similar_runs
+        assert rows[0].addendum == rows[1].addendum
+    finally:
+        preflight_cache.clear()
+        await _cleanup(run_id)
 
 
 async def test_preflight_does_not_double_count_evidence() -> None:

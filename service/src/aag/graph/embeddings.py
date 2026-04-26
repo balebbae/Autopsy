@@ -93,7 +93,15 @@ _local_cache: dict[str, object] = {}
 
 
 def _local_model(name: str):
-    from sentence_transformers import SentenceTransformer  # type: ignore
+    try:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "EMBED_PROVIDER=local requires the 'ml' extra. "
+            "Install with `cd service && uv sync --extra ml`, or set "
+            "EMBED_PROVIDER=stub in .env for byte-identical-only retrieval, "
+            "or EMBED_PROVIDER=openai (with OPENAI_API_KEY) for hosted embeddings."
+        ) from exc
 
     if name not in _local_cache:
         _local_cache[name] = SentenceTransformer(name)

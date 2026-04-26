@@ -1,6 +1,6 @@
 """Run / diff / outcome / failure-case schemas."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -84,6 +84,33 @@ class RunSummary(BaseModel):
     rejection_count: int = 0
     files_touched: int = 0
     tool_calls: int = 0
+    # Aggregate counters surfaced on the runs list so the dashboard can
+    # render the green "Autopsy fired" badge without a per-row roundtrip.
+    preflight_hit_count: int = 0
+    preflight_blocked_count: int = 0
+
+
+class PreflightHitOut(BaseModel):
+    """One persisted call into /v1/preflight that returned non-none risk.
+
+    Surfaced on the run detail so the dashboard can render a "Autopsy
+    caught something" badge + a per-hit detail panel showing exactly
+    what the agent's system prompt was augmented with.
+    """
+
+    id: int
+    run_id: str
+    ts: int
+    task: str
+    risk_level: Literal["low", "medium", "high"]
+    top_failure_score: float
+    blocked: bool = False
+    tool: str | None = None
+    args: dict[str, Any] | None = None
+    similar_runs: list[str] = Field(default_factory=list)
+    top_failure_modes: list[dict[str, Any]] = Field(default_factory=list)
+    top_fix_patterns: list[dict[str, Any]] = Field(default_factory=list)
+    addendum: str | None = None
 
 
 class RunOut(RunSummary):
@@ -91,3 +118,4 @@ class RunOut(RunSummary):
     diffs: list[DiffSnapshot] = Field(default_factory=list)
     failure_case: FailureCaseOut | None = None
     rejections: list[RejectionOut] = Field(default_factory=list)
+    preflight_hits: list[PreflightHitOut] = Field(default_factory=list)

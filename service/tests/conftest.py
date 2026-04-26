@@ -12,17 +12,29 @@ os.environ["EMBED_PROVIDER"] = "stub"
 # locally.
 os.environ["LLM_PROVIDER"] = "none"
 
+import asyncio  # noqa: E402
+
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from aag.config import get_settings  # noqa: E402
 from aag.db import dispose  # noqa: E402
+from aag.db_init import init_schema  # noqa: E402
 from aag.main import app  # noqa: E402
 
 # Reset cached settings so the EMBED_PROVIDER override above takes effect even
 # if some import path called get_settings() prior to the env var being set.
 get_settings.cache_clear()
+
+# TestClient(app) doesn't trigger the FastAPI lifespan, so without this the
+# test database never sees additive contract changes (new tables, new
+# columns). Running init_schema synchronously here at module load mirrors
+# what the lifespan does on real boot. It's idempotent — every statement in
+# `db-schema.sql` uses CREATE TABLE / INDEX / ALTER … IF NOT EXISTS — so
+# re-running per test session is cheap and safe.
+asyncio.run(init_schema())
+asyncio.run(dispose())
 
 
 @pytest.fixture

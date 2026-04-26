@@ -10,6 +10,7 @@ import {
   Filter,
   Hammer,
   Search,
+  ShieldCheck,
   Sparkles,
   XCircle,
 } from "lucide-react"
@@ -330,6 +331,19 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
                     >
                       <XCircle className="h-2.5 w-2.5" />
                       {r.rejection_count}
+                    </span>
+                  ) : null}
+                  {r.preflight_hit_count > 0 ? (
+                    <span
+                      title={
+                        r.preflight_blocked_count > 0
+                          ? `Autopsy blocked ${r.preflight_blocked_count} of ${r.preflight_hit_count} risky tool call${r.preflight_hit_count === 1 ? "" : "s"} on this run`
+                          : `Autopsy warned the agent on ${r.preflight_hit_count} similar past failure${r.preflight_hit_count === 1 ? "" : "s"}`
+                      }
+                      className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-emerald-700 dark:text-emerald-300"
+                    >
+                      <ShieldCheck className="h-2.5 w-2.5" />
+                      {r.preflight_hit_count}
                     </span>
                   ) : null}
                 </div>
