@@ -108,7 +108,7 @@ function AttemptColumn({
         <div
           className={cn(
             "w-full max-w-full rounded-lg border bg-card/85 px-3 py-2 text-[13px] leading-snug",
-            "[overflow-wrap:anywhere] line-clamp-3",
+            "max-h-32 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] scrollbar-thin",
             frustrated ? "border-destructive/40" : "border-border",
             fallbackTask ? "italic text-muted-foreground" : "",
           )}
@@ -174,7 +174,7 @@ function AttemptCard({ attempt }: { attempt: Attempt }) {
               {attempt.preflight.length === 1 ? "" : "s"}
             </span>
           </div>
-          <div className="mt-1 text-[11.5px] leading-snug text-muted-foreground">
+          <div className="mt-1 text-[11.5px] leading-snug text-muted-foreground [overflow-wrap:anywhere]">
             {blocked && hit.tool ? (
               <>
                 Tool <code className="rounded bg-background/60 px-1">{hit.tool}</code>{" "}
@@ -272,7 +272,7 @@ function OutcomeFooter({
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-red-100/85 [overflow-wrap:anywhere]">
+          <p className="mt-0.5 max-h-24 overflow-y-auto whitespace-pre-wrap text-[11.5px] leading-snug text-red-100/85 [overflow-wrap:anywhere] scrollbar-thin">
             {tail}
           </p>
         </div>
@@ -289,7 +289,7 @@ function OutcomeFooter({
       <div className="flex items-start gap-2 bg-emerald-500/12 px-3 py-2 text-[12.5px] font-semibold text-emerald-300">
         <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>approved</span>
-        <span className="ml-1 truncate font-normal text-muted-foreground" title={note}>
+        <span className="ml-1 min-w-0 flex-1 font-normal text-muted-foreground [overflow-wrap:anywhere]" title={note}>
           — {note}
         </span>
       </div>

@@ -46,7 +46,7 @@ export function NodeDrawer({
     <Dialog open={!!node} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         showClose={false}
-        className="max-w-2xl w-full p-0 overflow-hidden border border-border/60 bg-card shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-100 duration-150"
+        className="w-[calc(100vw-2rem)] max-w-2xl p-0 overflow-hidden border border-border/60 bg-card shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-100 duration-150"
       >
         {node && style ? (
           <>
@@ -75,10 +75,10 @@ export function NodeDrawer({
                     </Badge>
                   )}
                 </div>
-                <DialogTitle className="text-base font-semibold leading-snug truncate">
+                <DialogTitle className="max-h-28 overflow-y-auto whitespace-pre-wrap text-base font-semibold leading-snug [overflow-wrap:anywhere] scrollbar-thin">
                   {nodeDisplayName(node)}
                 </DialogTitle>
-                <DialogDescription className="font-mono text-[11px] mt-0.5 truncate text-muted-foreground/70">
+                <DialogDescription className="font-mono text-[11px] mt-1 max-h-12 overflow-y-auto whitespace-pre-wrap text-muted-foreground/70 [overflow-wrap:anywhere] scrollbar-thin">
                   {node.id}
                 </DialogDescription>
               </div>
@@ -132,7 +132,7 @@ export function NodeDrawer({
                 {(incoming.length > 0 || outgoing.length > 0) && (
                   <>
                     <Separator />
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <EdgeList
                         title="Incoming"
                         icon={<ArrowDownLeft className="h-3 w-3" />}
@@ -226,12 +226,12 @@ function EdgeList({
                     <button
                       type="button"
                       onClick={() => other && onSelectNode(other)}
-                      className="w-full flex items-center justify-between gap-2 text-left cursor-pointer"
+                      className="w-full flex items-start justify-between gap-2 text-left cursor-pointer"
                     >
-                      <span className="text-xs truncate flex items-center gap-1.5">
+                      <span className="min-w-0 flex flex-1 items-start gap-1.5 text-xs leading-snug [overflow-wrap:anywhere]">
                         {otherStyle && (
                           <span
-                            className="inline-block h-2 w-2 rounded-sm shrink-0"
+                            className="mt-1 inline-block h-2 w-2 rounded-sm shrink-0"
                             style={{ backgroundColor: otherStyle.color }}
                           />
                         )}
