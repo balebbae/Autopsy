@@ -93,6 +93,12 @@ trace: ## Seed runs, then call /v1/preflight on each to verify the closed loop e
 demo-prep: ## Boot postgres, seed the graph, and verify the closed loop end-to-end (uses scripts/demo-prep.sh)
 	bash scripts/demo-prep.sh
 
+demo: ## DESTRUCTIVE: reset DB, seed 14 runs across 5 clusters, run Act 1 + Act 2, start dashboard
+	bash scripts/demo.sh
+
+demo-seed: ## Seed-only: run scripts/seed-demo.py against an already-running service (no DB reset)
+	cd service && uv run python ../scripts/seed-demo.py
+
 reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
 	cd service && uv run python ../scripts/reindex.py
 
