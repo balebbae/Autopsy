@@ -67,8 +67,20 @@ const markPermissionFired = (key: string): boolean => {
 const FRUSTRATION_RE =
   /\b(shit|shitty|fuck|fucking|fucked|wtf|trash|garbage|terrible|horrible|awful|useless|stupid|idiot|dumb|crap|crappy|kill\s*(yourself|urself)|kys|this\s+sucks|worst|redo\s+(this|it|everything)|start\s+over|completely\s+wrong|totally\s+wrong|not\s+what\s+i\s+(asked|wanted|said)|that('?s| is)\s+(bad|wrong|broken|not\s+right|incorrect)|wh(y|at the hell|at the heck)\s+(did|are|is|would)\s+you|you\s+(broke|messed\s+up|ruined|fucked\s+up|screwed\s+up)|undo\s+(this|that|it)|revert\s+(this|that|it)|don'?t\s+do\s+that|do\s+not\s+do\s+that|stop\s+(it|that)|never\s+(do|did)\s+that|that('?s| is)\s+not\s+what|hate\s+(this|that|it))\b/i
 
-// Track sessions where we already fired a frustration rejection so we don't spam.
+// Track sessions where we already fired a frustration rejection so we
+// don't spam. Bounded LRU (same shape as `sessionsWithDiff` /
+// `firedPermissions`) so long-running plugin processes don't leak.
+const FIRED_SESSIONS_LIMIT = 1024
 const firedSessions = new Set<string>()
+const markSessionFired = (runId: string): boolean => {
+  if (firedSessions.has(runId)) return false
+  firedSessions.add(runId)
+  if (firedSessions.size > FIRED_SESSIONS_LIMIT) {
+    const oldest = firedSessions.values().next().value
+    if (oldest !== undefined) firedSessions.delete(oldest)
+  }
+  return true
+}
 
 // Entry for the `event` hook. opencode 1.x wraps the bus event in `{ event }`.
 // We never block on the network — fire-and-forget through the batcher.
@@ -89,6 +101,19 @@ export const onEvent = async (
   // --- Side-effects that must run BEFORE the noise filter ---
 
   if (e.type === "permission.replied" && props.reply === "reject") {
+    // Dedupe by permissionID *before* enqueueing so re-emitted events
+    // (opencode occasionally re-fires on reconnect / session.updated
+    // cascades) don't create duplicate event rows. The plugin doesn't set
+    // event_id, so the service's `(run_id, event_id)` dedup is a no-op
+    // for plugin events — we have to dedupe at the source. If opencode
+    // doesn't include a permissionID, fall back to the event timestamp
+    // so events in the same millisecond still collapse.
+    const permissionID =
+      (props as { permissionID?: string; id?: string }).permissionID ??
+      (props as { permissionID?: string; id?: string }).id ??
+      `ts:${Date.now()}`
+    if (!markPermissionFired(`${runId}:${permissionID}`)) return
+
     // Persist the raw event *first* so the dashboard's timeline shows the
     // "Permission rejected" row immediately. If we POST the rejection
     // before flushing, the rejection record + classifier output land
@@ -104,22 +129,11 @@ export const onEvent = async (
     })
     await flush()
 
-    // Dedupe by permissionID so re-emitted events don't double-file. If
-    // opencode doesn't include a permissionID for some reason, fall back
-    // to the event timestamp so identical events in the same millisecond
-    // still collapse, but legitimate distinct denials still go through.
-    const permissionID =
-      (props as { permissionID?: string; id?: string }).permissionID ??
-      (props as { permissionID?: string; id?: string }).id ??
-      `ts:${Date.now()}`
-    const key = `${runId}:${permissionID}`
-    if (markPermissionFired(key)) {
-      await postRejection(runId, {
-        reason: props.feedback || "User denied a permission request.",
-        failure_mode: "user_permission_denied",
-      })
-      if (props.feedback) await postFeedback(runId, props.feedback as string)
-    }
+    await postRejection(runId, {
+      reason: props.feedback || "User denied a permission request.",
+      failure_mode: "user_permission_denied",
+    })
+    if (props.feedback) await postFeedback(runId, props.feedback as string)
     return // already enqueued; don't double-record below
   }
 
@@ -132,26 +146,31 @@ export const onEvent = async (
     !("time" in (props.part ?? {})) &&
     props.part?.text &&
     FRUSTRATION_RE.test(props.part.text) &&
-    !firedSessions.has(runId)
+    markSessionFired(runId)
   ) {
-    firedSessions.add(runId)
-    const snippet = props.part.text.slice(0, 300)
+    const text = props.part.text
+    const snippet = text.slice(0, 300)
     // Same ordering: enqueue + flush before rejection POST so the user
-    // message row exists when the dashboard refreshes.
+    // message row exists when the dashboard refreshes. We enqueue the
+    // full text (not the snippet) because that's what the regular
+    // message.part.updated handler below would have done — and we
+    // `return` after to skip that handler so we don't double-enqueue.
     enqueue({
       run_id: runId,
       project: ctx.project?.id,
       worktree: ctx.worktree,
       ts: Date.now(),
       type: "chat.message",
-      properties: { sessionID: runId, role: "user", text: snippet },
+      properties: { sessionID: runId, role: "user", text: text.trim() },
     })
     await flush()
+    setLatestUserMessage(text)
     await postRejection(runId, {
       reason: snippet,
       failure_mode: "frustrated_user",
     })
     await postFeedback(runId, snippet)
+    return
   }
 
   // --- Noise filter: drop chatty events that add no signal ---
