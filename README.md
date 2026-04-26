@@ -49,17 +49,28 @@ From **your project's root** (not the Autopsy repo), run:
 curl -fsSL https://install.autopsy.surf/install.sh | bash
 ```
 
-This downloads the plugin source, bundles it, and places it at
-`.opencode/plugins/autopsy.js`. Set these env vars (or add to `.env`) so the
-plugin can reach the Autopsy service:
+By default this brings up the full local stack:
 
-```bash
-AAG_URL=http://localhost:4000   # where the Autopsy service is running
-AAG_TOKEN=                      # optional auth token
-```
+- clones the repo into `~/.autopsy/Autopsy`
+- starts postgres (pgvector) via `docker compose`
+- runs `uv sync` for the service and `npm install` for the dashboard
+- builds the plugin and drops it at `.opencode/plugins/autopsy.js` in the
+  current project
+- writes `AAG_URL=http://localhost:4000` to the project's `.env`
+- starts the FastAPI service on `:4000` and the dashboard on `:3000` in
+  the background. `~/.autopsy/stop.sh` stops everything.
 
-Then start `opencode` as usual — the plugin loads automatically. Re-run the
-curl command at any time to update to the latest version.
+Then start `opencode` in the same directory; the plugin loads automatically
+and posts events to the local service. Open <http://localhost:3000> to watch
+runs live. Re-run the curl command at any time to update.
+
+Flags:
+
+- `--plugin-only` skip the stack, install only the plugin. Useful if you
+  already have an Autopsy service running somewhere — point `AAG_URL` at it.
+- `--no-start` set everything up but don't launch the service / dashboard
+  (postgres still comes up). Run `make dev` from `~/.autopsy/Autopsy`
+  whenever you're ready.
 
 ### For Autopsy contributors
 

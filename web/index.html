@@ -211,6 +211,23 @@ main{
 .links a:hover{color:var(--fg)}
 .links a:hover .arrow{transform:translateX(2px)}
 .arrow{transition:transform .15s}
+.fineprint{
+  margin:18px auto 0;
+  max-width:600px;
+  font-size:12px;
+  line-height:1.55;
+  color:var(--muted);
+  text-align:center;
+}
+.fineprint code{
+  font-family:'Geist Mono',ui-monospace,monospace;
+  font-size:11.5px;
+  color:var(--fg);
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:5px;
+  padding:1px 5px;
+}
 .foot{
   position:fixed;
   bottom:18px;
@@ -250,6 +267,7 @@ main{
       <code class="command-text" id="cmd">curl -fsSL https://install.autopsy.surf/install.sh | bash</code>
       <button class="copy-btn" id="copy" type="button" aria-label="Copy install command">Copy</button>
     </div>
+    <p class="fineprint">Brings up postgres, the FastAPI service on <code>:4000</code>, and the dashboard on <code>:3000</code>, and installs the opencode plugin into the current project. Add <code>-s -- --plugin-only</code> to skip the local stack.</p>
     <nav class="links">
       <a href="/install.sh">view install.sh <span class="arrow">→</span></a>
       <a href="https://github.com/balebbae/Autopsy" target="_blank" rel="noopener">source on GitHub <span class="arrow">→</span></a>
