@@ -91,8 +91,8 @@ export function AutopsyCard({
               Symptoms
             </p>
             <ul className="space-y-2">
-              {failure.symptoms.map((s) => (
-                <li key={s.name}>
+              {failure.symptoms.map((s, i) => (
+                <li key={`${s.name}-${i}`}>
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-sm font-medium" title={s.name}>
                       {humanizeSymptom(s.name)}

@@ -290,6 +290,12 @@ function severityForEvent(e: Mergeable): Severity {
   ) {
     return "rejection"
   }
+  if (
+    e.type === "chat.message" &&
+    (e.properties as { frustrated?: boolean } | undefined)?.frustrated === true
+  ) {
+    return "rejection"
+  }
   return "default"
 }
 
@@ -297,8 +303,9 @@ function labelForEvent(e: Mergeable): string {
   // Dynamic labels that depend on payload — fall back to the static
   // `eventLabel` map otherwise.
   if (e.type === "chat.message") {
-    const role = (e.properties as { role?: string } | undefined)?.role
-    return role === "assistant" ? "Assistant" : "User"
+    const props = e.properties as { role?: string; frustrated?: boolean } | undefined
+    if (props?.frustrated) return "User expressed frustration"
+    return props?.role === "assistant" ? "Assistant" : "User"
   }
   if (e.type === "message.part.updated") {
     const part = (e.properties as { part?: { type?: string } } | undefined)?.part
