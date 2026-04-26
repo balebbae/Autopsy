@@ -172,7 +172,7 @@ export function GraphExplorer() {
   const fgRef = React.useRef<ForceGraphMethods | undefined>(undefined)
   const positionedNodesRef = React.useRef<Array<{ id: string; x?: number; y?: number; type: string }>>([])
 
-  const [layout, setLayout] = React.useState<LayoutKey>("dagLr")
+  const [layout, setLayout] = React.useState<LayoutKey>("force")
   const [search, setSearch] = React.useState("")
   const [visibleNodeTypes, setVisibleNodeTypes] = React.useState<Set<string>>(
     new Set(),

@@ -3,6 +3,10 @@
 import * as React from "react"
 import dynamic from "next/dynamic"
 import type { ForceGraphMethods } from "react-force-graph-2d"
+// d3-force-3d is the same force module react-force-graph-2d uses internally.
+// We use it to register a collision force so rectangular cards don't overlap.
+// Ambient types live in src/types/d3-force-3d.d.ts.
+import { forceCollide } from "d3-force-3d"
 
 import type { GraphEdge, GraphNode } from "@/lib/api"
 import { nodeStyle, nodeDisplayName, edgeStyle, type NodeStyleConfig } from "./graph-style"
@@ -78,6 +82,25 @@ const NODE_SIZE: Record<string, number> = {
 
 function nodeSizeFor(type: string): number {
   return NODE_SIZE[type] ?? 18
+}
+
+// Card pixel dimensions used by the canvas painter and the collision force.
+// Keep these in sync with the values in `nodeCanvasObject` and
+// `nodePointerAreaPaint` below — if you change card sizes, update here too.
+function cardDimensions(type: string): { width: number; height: number } {
+  if (type === "FailureMode") return { width: 150, height: 52 }
+  if (type === "FixPattern") return { width: 145, height: 50 }
+  if (type === "File" || type === "Component") return { width: 120, height: 42 }
+  return { width: 135, height: 48 }
+}
+
+// Collision radius for the d3 force simulation. Cards are rectangular but
+// d3-force collision is circular, so we use the half-width (the dominant
+// dimension) plus padding. This keeps cards from overlapping horizontally
+// while still letting them stack reasonably close vertically.
+function nodeCollisionRadius(type: string): number {
+  const { width } = cardDimensions(type)
+  return width / 2 + 10
 }
 
 // Icon paths (simplified SVG paths for canvas rendering)
@@ -250,6 +273,37 @@ export function GraphCanvas2D({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [dim, setDim] = React.useState({ w: 0, h: 0 })
 
+  // ForceGraph2D is loaded via next/dynamic, so its imperative API arrives
+  // asynchronously. Mirror the ref into state so the force-configuration
+  // effect can re-run the moment the API becomes available. Without this,
+  // on a cold load the effect fires once with an empty ref, the simulation
+  // starts with d3's default forces (no collision, weak charge), settles
+  // into a clump, and only fixes itself when the user switches layouts
+  // (which retriggers the effect with a now-populated ref).
+  // (We poll rather than use a callback ref because react-force-graph-2d's
+  // type definition only accepts a MutableRefObject.)
+  const [fgInstance, setFgInstance] =
+    React.useState<ForceGraphMethods | null>(null)
+  React.useEffect(() => {
+    if (fgInstance) return
+    let cancelled = false
+    let rafId = 0
+    const tick = () => {
+      if (cancelled) return
+      const current = fgRef.current ?? null
+      if (current) {
+        setFgInstance(current)
+        return
+      }
+      rafId = requestAnimationFrame(tick)
+    }
+    tick()
+    return () => {
+      cancelled = true
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [fgRef, fgInstance])
+
   React.useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -315,27 +369,61 @@ export function GraphCanvas2D({
 
   const dagMode = LAYOUT_DAG[layout]
 
-  // Configure forces - use layout effect to run before paint
-  React.useLayoutEffect(() => {
-    const fg = fgRef.current
+  // Configure forces. The default forces in react-force-graph-2d (charge +
+  // link + center) treat nodes as points. With our 120-150px wide cards
+  // that produces clumping because card edges overlap even when centers
+  // are at the requested link distance. We compensate by:
+  //   1. Adding a collision force sized to each card.
+  //   2. Pushing the charge/link distances out to match card widths.
+  //   3. Letting dag layouts use a tighter charge (the dag constraint
+  //      already handles positioning along the layered axis).
+  // We depend on `fgInstance` (not just `fgRef`) so this also runs the
+  // first time the dynamically-loaded ForceGraph2D mounts.
+  React.useEffect(() => {
+    const fg = fgInstance
     if (!fg) return
-    
-    // Configure forces for better spacing with card-based nodes
-    const charge = fg.d3Force("charge") as { strength: (v: number) => unknown; distanceMin?: (v: number) => unknown; distanceMax?: (v: number) => unknown } | undefined
-    if (charge) {
-      charge.strength(-800)
-      if (typeof charge.distanceMin === "function") charge.distanceMin(100)
-      if (typeof charge.distanceMax === "function") charge.distanceMax(600)
+
+    type ChargeForce = {
+      strength: (v: number) => unknown
+      distanceMin?: (v: number) => unknown
+      distanceMax?: (v: number) => unknown
+    }
+    type LinkForce = {
+      distance?: (v: number | ((l: unknown) => number)) => unknown
+      strength?: (v: number | ((l: unknown) => number)) => unknown
     }
 
-    const link = fg.d3Force("link") as { distance?: (v: number) => unknown; strength?: (v: number) => unknown } | undefined
-    if (link) {
-      if (typeof link.distance === "function") link.distance(160)
-      if (typeof link.strength === "function") link.strength(0.3)
+    const isDag = dagMode !== null
+    const charge = fg.d3Force("charge") as ChargeForce | undefined
+    if (charge) {
+      // Force-directed needs strong long-range repulsion to spread cards out.
+      // DAG layouts already constrain the major axis, so a milder repulsion
+      // keeps them from drifting too far sideways.
+      charge.strength(isDag ? -900 : -2200)
+      if (typeof charge.distanceMin === "function") charge.distanceMin(40)
+      if (typeof charge.distanceMax === "function") charge.distanceMax(isDag ? 800 : 1500)
     }
-    
+
+    const link = fg.d3Force("link") as LinkForce | undefined
+    if (link) {
+      // Link distance is roughly two card widths apart so connected cards
+      // don't get pulled into overlap.
+      if (typeof link.distance === "function") link.distance(isDag ? 180 : 240)
+      if (typeof link.strength === "function") link.strength(isDag ? 0.4 : 0.25)
+    }
+
+    // Collision keeps cards from overlapping regardless of which other
+    // forces are active. Strength below 1 + a few iterations gives a
+    // smoother settle than a hard wall.
+    fg.d3Force(
+      "collide",
+      forceCollide<FGNode>((n: FGNode) => nodeCollisionRadius(n.type))
+        .strength(0.9)
+        .iterations(2),
+    )
+
     fg.d3ReheatSimulation()
-  }, [graphData, layout])
+  }, [graphData, layout, dagMode, fgInstance])
 
   const autoFitDone = React.useRef(false)
   React.useEffect(() => {
@@ -374,10 +462,9 @@ export function GraphCanvas2D({
       const isFixPattern = n.type === "FixPattern"
       const isSymptom = n.type === "Symptom"
       const isMinor = n.type === "File" || n.type === "Component"
-      
-      // Card dimensions - compact sizes
-      const cardWidth = isFailureMode ? 150 : isFixPattern ? 145 : isMinor ? 120 : 135
-      const cardHeight = isFailureMode ? 52 : isFixPattern ? 50 : isMinor ? 42 : 48
+
+      // Card dimensions - compact sizes (kept in sync via cardDimensions())
+      const { width: cardWidth, height: cardHeight } = cardDimensions(n.type)
       const accentWidth = 4
       const cornerRadius = 6
 
@@ -520,12 +607,8 @@ export function GraphCanvas2D({
       ctx.globalAlpha = isDimmed ? 0.15 : 1
 
       // Card dimensions for offset calculation (match compact sizes)
-      const sourceIsMinor = source.type === "File" || source.type === "Component"
-      const targetIsMinor = target.type === "File" || target.type === "Component"
-      const sourceWidth = sourceIsMinor ? 120 : source.type === "FailureMode" ? 150 : 135
-      const sourceHeight = sourceIsMinor ? 42 : source.type === "FailureMode" ? 52 : 48
-      const targetWidth = targetIsMinor ? 120 : target.type === "FailureMode" ? 150 : 135
-      const targetHeight = targetIsMinor ? 42 : target.type === "FailureMode" ? 52 : 48
+      const { width: sourceWidth, height: sourceHeight } = cardDimensions(source.type)
+      const { width: targetWidth, height: targetHeight } = cardDimensions(target.type)
 
       // Calculate edge points from card boundaries
       const dx = target.x - source.x
@@ -628,12 +711,8 @@ export function GraphCanvas2D({
       const n = node as FGNode
       const x = n.x ?? 0
       const y = n.y ?? 0
-      // Match compact card dimensions
-      const isFailureMode = n.type === "FailureMode"
-      const isFixPattern = n.type === "FixPattern"
-      const isMinor = n.type === "File" || n.type === "Component"
-      const cardWidth = isFailureMode ? 150 : isFixPattern ? 145 : isMinor ? 120 : 135
-      const cardHeight = isFailureMode ? 52 : isFixPattern ? 50 : isMinor ? 42 : 48
+      // Match compact card dimensions (kept in sync via cardDimensions())
+      const { width: cardWidth, height: cardHeight } = cardDimensions(n.type)
       ctx.fillStyle = color
       ctx.beginPath()
       ctx.rect(x - cardWidth / 2, y - cardHeight / 2, cardWidth, cardHeight)
@@ -655,12 +734,23 @@ export function GraphCanvas2D({
         graphData={graphData}
         backgroundColor="#0a0e1a"
         dagMode={dagMode ?? undefined}
-        dagLevelDistance={layout === "dagRadial" ? 150 : 120}
-        warmupTicks={50}
-        cooldownTicks={200}
-        cooldownTime={5000}
-        d3VelocityDecay={0.2}
-        d3AlphaDecay={0.01}
+        // dag level distance has to clear the longest card axis at that
+        // orientation: ~150px wide for LR/RL, ~52px tall for TD/BU.
+        // Radial uses the diagonal-ish so we give it a generous gap.
+        dagLevelDistance={
+          layout === "dagLr"
+            ? 240
+            : layout === "dagRadial"
+              ? 200
+              : layout === "dagTd" || layout === "dagBu"
+                ? 130
+                : 120
+        }
+        warmupTicks={120}
+        cooldownTicks={400}
+        cooldownTime={9000}
+        d3VelocityDecay={0.32}
+        d3AlphaDecay={0.018}
         nodeId="id"
         nodeCanvasObject={nodeCanvasObject}
         nodePointerAreaPaint={nodePointerAreaPaint}
