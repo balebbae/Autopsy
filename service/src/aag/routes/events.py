@@ -31,6 +31,7 @@ NOISY_TYPES = frozenset(
 @router.post("/events", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(batch: EventBatch, session: SessionDep) -> dict[str, int]:
     accepted = 0
+    published: list[dict] = []
     for ev in batch.events:
         if ev.type in NOISY_TYPES:
             continue
@@ -44,15 +45,16 @@ async def ingest(batch: EventBatch, session: SessionDep) -> dict[str, int]:
             continue
         await assembler.apply_event_side_effects(session, ev)
         accepted += 1
-        await pubsub.publish(
-            ev.run_id,
+        published.append(
             {
                 "event_id": ev.event_id,
                 "run_id": ev.run_id,
                 "ts": ev.ts,
                 "type": ev.type,
                 "properties": ev.properties,
-            },
+            }
         )
     await session.commit()
+    for event in published:
+        await pubsub.publish(event["run_id"], event)
     return {"accepted": accepted}

@@ -1,6 +1,7 @@
 import { enqueue } from "../batcher.ts"
 import { preflight } from "../client.ts"
-import { latestUserMessage } from "../last-task.ts"
+import { latestUserMessage, setLatestUserMessage } from "../last-task.ts"
+import { showSystemInjectionToast, type OpencodeToastClient } from "../tui-toast.ts"
 
 const DISSATISFACTION_PROMPT = `[Autopsy] You have a tool called autopsy_register_rejection. If the user expresses frustration or dissatisfaction with your changes (e.g. "this is wrong", "undo this", profanity, asking you to start over, or saying your output is bad), do the following:
 1. Acknowledge their frustration briefly.
@@ -12,18 +13,101 @@ Do NOT call the tool preemptively — only after the user has confirmed or expla
 // turn, before the LLM is called. We use it to inject a preflight warning
 // addendum into the system prompt array.
 //
-// NOTE: opencode's SDK does NOT pass `lastUserMessage` in the input object
-// (only `sessionID` and `model`).  We read the buffered task from
-// `latestUserMessage()` instead, which is populated by the `event` hook
-// when it observes `chat.message` / `message.created` events.
+type OpencodeClientLike = OpencodeToastClient & {
+  session?: {
+    messages?: (opts: {
+      path: { id: string }
+      query?: { directory?: string; limit?: number }
+    }) => Promise<unknown> | unknown
+  }
+}
+
+type MessagePart = { type?: string; text?: string }
+type SessionMessage = {
+  info?: { role?: string }
+  parts?: MessagePart[]
+}
+
+const SESSION_MESSAGES_TIMEOUT_MS = 150
+
+const textFromParts = (parts: MessagePart[] | undefined): string | null => {
+  if (!Array.isArray(parts)) return null
+  const chunks: string[] = []
+  for (const part of parts) {
+    if (part?.type === "text" && typeof part.text === "string" && part.text.trim()) {
+      chunks.push(part.text)
+    }
+  }
+  return chunks.length > 0 ? chunks.join("\n").trim() : null
+}
+
+const latestUserMessageFromSession = async (
+  client: OpencodeClientLike | undefined,
+  sessionID: string | undefined,
+  directory: string | undefined,
+): Promise<string | null> => {
+  if (!client?.session?.messages || !sessionID) return null
+
+  try {
+    const result: any = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), SESSION_MESSAGES_TIMEOUT_MS)
+      Promise.resolve(
+        client.session!.messages!({
+          path: { id: sessionID },
+          query: { directory, limit: 20 },
+        }),
+      ).then(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        () => {
+          clearTimeout(timer)
+          resolve(null)
+        },
+      )
+    })
+    const messages = (result?.data ?? result) as SessionMessage[] | undefined
+    if (!Array.isArray(messages)) return null
+
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i]
+      if (msg?.info?.role !== "user") continue
+      const text = textFromParts(msg.parts)
+      if (text) return text
+    }
+  } catch {
+    // Best-effort fallback only. If this races the opencode message store,
+    // preflight remains fail-open and the tool-boundary check can still run.
+  }
+
+  return null
+}
+
+// NOTE: opencode's SDK does NOT pass `lastUserMessage` in this hook input
+// (only `sessionID` and `model`). We first read the session-scoped buffer
+// populated by `chat.message` / bus events. If hook ordering means the buffer
+// is not ready yet, we fall back to the opencode session messages endpoint.
 export const onSystemTransform = async (
   input: { sessionID?: string },
   output: { system: string[] },
-  ctx: { project?: { id?: string }; worktree?: string },
+  ctx: {
+    project?: { id?: string }
+    worktree?: string
+    directory?: string
+    client?: OpencodeClientLike
+  },
 ) => {
   output.system.push(DISSATISFACTION_PROMPT)
 
-  const task = latestUserMessage() ?? ""
+  const systemCountBefore = output.system.length
+  let taskSource = "buffer"
+  let task = latestUserMessage(input.sessionID, { fallbackGlobal: false })
+  if (!task) {
+    task = await latestUserMessageFromSession(ctx.client, input.sessionID, ctx.directory)
+    taskSource = "session.messages"
+    if (task) setLatestUserMessage(task, input.sessionID)
+  }
   if (!task) return
 
   const risk = await preflight({
@@ -35,6 +119,7 @@ export const onSystemTransform = async (
   if (!risk?.system_addendum) return
 
   output.system.push(risk.system_addendum)
+  await showSystemInjectionToast(ctx.client, ctx.directory, input.sessionID, risk.system_addendum)
 
   // Record the injection so the dashboard timeline shows it.
   if (input.sessionID) {
@@ -46,6 +131,10 @@ export const onSystemTransform = async (
         risk_level: risk.risk_level,
         similar_runs: risk.similar_runs,
         addendum_length: risk.system_addendum.length,
+        system_count_before: systemCountBefore,
+        system_count_after: output.system.length,
+        task_source: taskSource,
+        system_addendum: risk.system_addendum,
       },
     })
   }

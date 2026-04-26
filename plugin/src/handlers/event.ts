@@ -367,7 +367,7 @@ export const onEvent = async (
         properties: norm,
       })
       if (norm.role === "user" && typeof norm.text === "string") {
-        setLatestUserMessage(norm.text)
+        setLatestUserMessage(norm.text, runId)
       }
     }
     return
@@ -391,7 +391,7 @@ export const onEvent = async (
 
   // Capture the latest user-message text for preflight enrichment (F8).
   const userText = extractUserText(e.type, e.properties ?? {})
-  if (userText) setLatestUserMessage(userText)
+  if (userText) setLatestUserMessage(userText, runId)
 }
 
 // --- helpers ---------------------------------------------------------------

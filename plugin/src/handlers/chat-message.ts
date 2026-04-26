@@ -53,7 +53,7 @@ export const onChatMessage = async (
   if (!text) return
 
   // Update preflight enrichment buffer immediately.
-  setLatestUserMessage(text)
+  setLatestUserMessage(text, runId)
 
   // Emit a synthetic event so the service can refresh runs.task.
   const taskEv: EventIn = {

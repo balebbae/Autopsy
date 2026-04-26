@@ -20,6 +20,14 @@ assert(latestUserMessage() === null, "expected null on fresh module")
 
 setLatestUserMessage("hi")
 assert(latestUserMessage() === "hi", `expected "hi", got ${JSON.stringify(latestUserMessage())}`)
+assert(
+  latestUserMessage("missing-session") === "hi",
+  "missing session should fall back to global by default",
+)
+assert(
+  latestUserMessage("missing-session", { fallbackGlobal: false }) === null,
+  "missing session should skip global fallback when requested",
+)
 
 // Whitespace-only writes must NOT clobber the existing value.
 setLatestUserMessage("  ")
@@ -39,6 +47,17 @@ setLatestUserMessage("  next task  ")
 assert(
   latestUserMessage() === "next task",
   `expected trimmed "next task", got ${JSON.stringify(latestUserMessage())}`,
+)
+
+setLatestUserMessage("session A task", "session-A")
+setLatestUserMessage("session B task", "session-B")
+assert(
+  latestUserMessage("session-A", { fallbackGlobal: false }) === "session A task",
+  `expected session A task, got ${JSON.stringify(latestUserMessage("session-A"))}`,
+)
+assert(
+  latestUserMessage("session-B", { fallbackGlobal: false }) === "session B task",
+  `expected session B task, got ${JSON.stringify(latestUserMessage("session-B"))}`,
 )
 
 console.log("ok")

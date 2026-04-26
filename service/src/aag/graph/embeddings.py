@@ -7,6 +7,7 @@ extra='ml') or 'openai' (extra='openai') by setting EMBED_PROVIDER.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from typing import TYPE_CHECKING
 
@@ -68,15 +69,24 @@ async def _gemini_embed(texts: list[str], settings: Settings) -> list[float]:
     was removed from the v1beta API, which is why we MRL-truncate the
     newer model rather than swapping back. Don't "simplify" by dropping
     ``output_dimensionality`` — the schema mismatch breaks every write.
+
+    ``genai.embed_content`` is a *synchronous* HTTP call. Run it on a
+    worker thread so we don't freeze the asyncio event loop. Preflight and
+    finalizer work share the same loop as ingestion; a stalled loop can
+    leave requests holding DB connections long enough to exhaust
+    ``QueuePool`` under concurrency.
     """
     import google.generativeai as genai  # type: ignore
 
-    genai.configure(api_key=settings.gemini_api_key)
-    result = genai.embed_content(
-        model=_GEMINI_EMBED_MODEL,
-        content=texts[0],
-        output_dimensionality=settings.embed_dim,
-    )
+    def _call() -> dict:
+        genai.configure(api_key=settings.gemini_api_key)
+        return genai.embed_content(
+            model=_GEMINI_EMBED_MODEL,
+            content=texts[0],
+            output_dimensionality=settings.embed_dim,
+        )
+
+    result = await asyncio.to_thread(_call)
     return _truncate_to_dim([float(x) for x in result["embedding"]], settings.embed_dim)
 
 
@@ -86,15 +96,23 @@ async def _gemini_embed_batch(texts: list[str], settings: Settings) -> list[list
     ``embed_content`` accepts a list of strings and returns a list of
     vectors in one round-trip (free tier: 1 500 req/min). Same MRL
     truncation as the single-text path.
+
+    Same loop-freezing concern as ``_gemini_embed``: this is the
+    finalizer's path, which is rarer than preflight but still serializes
+    everything else if it runs on the loop thread. ``asyncio.to_thread``
+    offloads the blocking SDK call.
     """
     import google.generativeai as genai  # type: ignore
 
-    genai.configure(api_key=settings.gemini_api_key)
-    result = genai.embed_content(
-        model=_GEMINI_EMBED_MODEL,
-        content=texts,
-        output_dimensionality=settings.embed_dim,
-    )
+    def _call() -> dict:
+        genai.configure(api_key=settings.gemini_api_key)
+        return genai.embed_content(
+            model=_GEMINI_EMBED_MODEL,
+            content=texts,
+            output_dimensionality=settings.embed_dim,
+        )
+
+    result = await asyncio.to_thread(_call)
     vecs = result["embedding"]
     if texts and not isinstance(vecs[0], list):
         return [_truncate_to_dim([float(x) for x in vecs], settings.embed_dim)]
@@ -111,9 +129,14 @@ async def embed(text: str) -> list[float]:
 
     if settings.embed_provider == "local":
         # _local_model() lazily imports sentence_transformers so the heavy
-        # dep isn't required when EMBED_PROVIDER is "stub" or "openai".
+        # dep is not required when EMBED_PROVIDER is "stub" or "openai".
+        # ``model.encode`` is CPU-bound and synchronous; offload to a thread
+        # so the asyncio loop keeps servicing other preflight / events
+        # requests while inference runs.
         model = _local_model(settings.embed_model)
-        vec = model.encode(text, normalize_embeddings=True).tolist()
+        vec = await asyncio.to_thread(
+            lambda: model.encode(text, normalize_embeddings=True).tolist()
+        )
         return list(vec)
 
     if settings.embed_provider == "openai":
@@ -145,7 +168,9 @@ async def embed_batch(texts: list[str]) -> list[list[float]]:
 
     if settings.embed_provider == "local":
         model = _local_model(settings.embed_model)
-        vecs = model.encode(texts, normalize_embeddings=True).tolist()
+        vecs = await asyncio.to_thread(
+            lambda: model.encode(texts, normalize_embeddings=True).tolist()
+        )
         return [list(v) for v in vecs]
 
     if settings.embed_provider == "openai":

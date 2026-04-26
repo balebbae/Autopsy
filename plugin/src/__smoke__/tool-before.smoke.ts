@@ -5,8 +5,8 @@
 // Covers the Option-2 implementation:
 //   - skips tools outside config.preflight.tools
 //   - calls preflight for every tool in the set (incl. read/grep)
-//   - block: true throws a rich rationale + emits aag.preflight.blocked
-//   - non-blocking risk emits aag.preflight.warned (no throw)
+//   - block: true is advisory-only and emits aag.preflight.warned
+//   - risk emits aag.preflight.warned (no throw)
 //   - duplicate warnings within one session are deduped
 //   - distinct (tool, args) pairs are NOT deduped
 //   - service timeout / non-200 fails open (no throw, no event)
@@ -14,10 +14,11 @@
 
 import {
   _resetToolBefore,
-  buildBlockMessage,
   onToolBefore,
 } from "../handlers/tool-before.ts"
+import { config } from "../config.ts"
 import { _resetLatestUserMessage, setLatestUserMessage } from "../last-task.ts"
+import { _resetTuiToast } from "../tui-toast.ts"
 import type { PreflightResponse } from "../types.ts"
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -76,6 +77,7 @@ const ctx = { project: { id: "proj" }, worktree: "/tmp/wt" }
 const reset = () => {
   captured.length = 0
   _resetToolBefore()
+  _resetTuiToast()
   _resetLatestUserMessage()
   setLatestUserMessage("user wants a feature")
   scriptedPreflight = { status: 200, body: { risk_level: "none" } }
@@ -206,10 +208,11 @@ async function testWarnedNeverThrows() {
   } catch {
     threw = true
   }
-  assert(!threw, "non-blocking high risk should NOT throw — only blocks throw")
+  assert(!threw, "high risk should NOT throw; preflight is advisory-only")
+  await flushBatcher()
 }
 
-async function testBlockedThrowsRichRationale() {
+async function testServiceBlockIsAdvisory() {
   reset()
   scriptedPreflight = {
     status: 200,
@@ -223,37 +226,32 @@ async function testBlockedThrowsRichRationale() {
       system_addendum: "Update both contracts/openapi.yaml AND the FE client when changing routes.",
     },
   }
-  let err: Error | null = null
+  let threw = false
   try {
     await onToolBefore(
       { sessionID: "s-block", tool: "edit" },
       { args: { path: "service/routes.py" } },
       ctx,
     )
-  } catch (e: any) {
-    err = e as Error
+  } catch {
+    threw = true
   }
-  assert(err !== null, "block: true should throw")
-  const msg = err!.message
-  assert(msg.startsWith("[Autopsy]"), `error message should be Autopsy-tagged; got: ${msg}`)
-  assert(
-    msg.includes("frontend_backend_drift"),
-    `error should cite the failure mode; got: ${msg}`,
-  )
-  assert(msg.includes("openapi.yaml"), `error should cite the recommended fix; got: ${msg}`)
-  assert(msg.includes("run-1"), `error should cite at least one similar run id; got: ${msg}`)
+  assert(!threw, "block: true should not throw; preflight is advisory-only")
 
   await flushBatcher()
   const blocked = eventsOfType(captured, "aag.preflight.blocked")
+  const warned = eventsOfType(captured, "aag.preflight.warned")
   assert(
-    blocked.length === 1,
-    `expected one aag.preflight.blocked event; saw ${blocked.length}`,
+    blocked.length === 0,
+    `advisory block should not emit blocked event; saw ${blocked.length}`,
   )
-  assert(blocked[0]!.properties.tool === "edit", "blocked event should carry tool name")
   assert(
-    typeof blocked[0]!.properties.reason === "string" &&
-      blocked[0]!.properties.reason.includes("frontend_backend_drift"),
-    "blocked event should carry the rich reason",
+    warned.length === 1,
+    `advisory block should emit a warning; saw ${warned.length}`,
+  )
+  assert(
+    warned[0]?.properties?.service_block === true,
+    "warning should preserve that the service requested a block",
   )
 }
 
@@ -296,7 +294,7 @@ async function testWarnDedup() {
   )
 }
 
-async function testBlockNeverDeduped() {
+async function testServiceBlockWarningsAreDeduped() {
   reset()
   scriptedPreflight = {
     status: 200,
@@ -307,9 +305,8 @@ async function testBlockNeverDeduped() {
       missing_followups: ["fm"],
     },
   }
-  // Each block call should emit an event AND throw — the dedup map is for
-  // warnings only.
-  let throws = 0
+  // Service block requests are advisory warnings, so they use the same
+  // dedup behavior as other warnings.
   for (let i = 0; i < 3; i++) {
     try {
       await onToolBefore(
@@ -318,15 +315,54 @@ async function testBlockNeverDeduped() {
         ctx,
       )
     } catch {
-      throws++
+      assert(false, "service block should not throw")
     }
   }
   await flushBatcher()
   const blocked = eventsOfType(captured, "aag.preflight.blocked")
-  assert(throws === 3, `every block call should throw; saw ${throws}`)
+  const warned = eventsOfType(captured, "aag.preflight.warned")
   assert(
-    blocked.length === 3,
-    `every block call should emit a fresh event; saw ${blocked.length}`,
+    blocked.length === 0,
+    `service block should not emit blocked events; saw ${blocked.length}`,
+  )
+  assert(
+    warned.length === 1,
+    `identical advisory service blocks should dedupe to one warning; saw ${warned.length}`,
+  )
+}
+
+async function testExploratoryBlockBecomesWarning() {
+  reset()
+  scriptedPreflight = {
+    status: 200,
+    body: {
+      risk_level: "high",
+      block: true,
+      reason: "test block",
+      missing_followups: ["missing_test_coverage"],
+    },
+  }
+
+  let threw = false
+  try {
+    await onToolBefore(
+      { sessionID: "s-read-block", tool: "read" },
+      { args: { path: "settings.go" } },
+      ctx,
+    )
+  } catch {
+    threw = true
+  }
+  assert(!threw, "read should not throw even if service returns block=true")
+
+  await flushBatcher()
+  const blocked = eventsOfType(captured, "aag.preflight.blocked")
+  const warned = eventsOfType(captured, "aag.preflight.warned")
+  assert(blocked.length === 0, `read block should not emit blocked event; saw ${blocked.length}`)
+  assert(warned.length === 1, `read block should become a warning; saw ${warned.length}`)
+  assert(
+    warned[0]?.properties?.service_block === true,
+    "warning should preserve that the service requested a block",
   )
 }
 
@@ -412,41 +448,52 @@ async function testDisabledFlagSkipsAll() {
   }
 }
 
-async function testBuildBlockMessageWithoutAddendum() {
-  const reason = buildBlockMessage({
-    risk_level: "high",
-    block: true,
-    similar_runs: ["r-1", "r-2"],
-    missing_followups: ["incomplete_schema_change"],
-    recommended_checks: ["update db-schema.sql"],
-  })
-  assert(reason.startsWith("[Autopsy]"), "message should be Autopsy-tagged")
-  assert(
-    reason.includes("incomplete_schema_change"),
-    `should fall back to missing_followups; got: ${reason}`,
-  )
-  assert(reason.includes("db-schema.sql"), `should cite recommended fix; got: ${reason}`)
-  assert(reason.includes("r-1"), `should cite a similar past run id; got: ${reason}`)
-}
+async function testToolToastsArePerDistinctRisk() {
+  reset()
+  const previousToast = config.preflight.tuiToast
+  const previousScope = config.preflight.tuiToastScope
+  const toasts: any[] = []
+  const toastCtx = {
+    ...ctx,
+    directory: "/tmp/wt",
+    client: {
+      tui: {
+        showToast: async (opts: any) => {
+          toasts.push(opts)
+        },
+      },
+    },
+  }
 
-async function testBuildBlockMessagePrefersAddendum() {
-  const reason = buildBlockMessage({
-    risk_level: "high",
-    block: true,
-    system_addendum: "Past runs touched openapi.yaml; mirror your edit there.",
-    missing_followups: ["fm"],
-    recommended_checks: ["check"],
-    similar_runs: ["r-1"],
-  })
-  assert(
-    reason.includes("openapi.yaml"),
-    `should embed system_addendum verbatim; got: ${reason}`,
-  )
-  assert(
-    !reason.includes("Past failure modes:"),
-    `addendum should suppress the structured-fields fallback; got: ${reason}`,
-  )
-  assert(reason.includes("r-1"), "similar runs should still be appended after the addendum")
+  config.preflight.tuiToast = true
+  config.preflight.tuiToastScope = "tool"
+  scriptedPreflight = {
+    status: 200,
+    body: {
+      risk_level: "low",
+      similar_runs: ["run-1", "run-2"],
+      system_addendum: "Check settings reads against the API route.",
+    },
+  }
+
+  try {
+    await onToolBefore({ sessionID: "s-toast", tool: "grep" }, { args: { pattern: "Settings" } }, toastCtx)
+    await onToolBefore({ sessionID: "s-toast", tool: "read" }, { args: { path: "settings.go" } }, toastCtx)
+    await onToolBefore({ sessionID: "s-toast", tool: "read" }, { args: { path: "settings.go" } }, toastCtx)
+
+    assert(toasts.length === 2, `expected one toast per distinct risky tool call; got ${toasts.length}`)
+    assert(
+      toasts[0]?.body?.title === "Autopsy low risk: grep",
+      `first toast should identify grep risk; got ${JSON.stringify(toasts[0])}`,
+    )
+    assert(
+      toasts[1]?.body?.title === "Autopsy low risk: read",
+      `second toast should identify read risk; got ${JSON.stringify(toasts[1])}`,
+    )
+  } finally {
+    config.preflight.tuiToast = previousToast
+    config.preflight.tuiToastScope = previousScope
+  }
 }
 
 // --- driver ---------------------------------------------------------------
@@ -458,14 +505,14 @@ async function main() {
     await testNoneRiskEmitsNothing()
     await testWarnedEventEmittedOnRisk()
     await testWarnedNeverThrows()
-    await testBlockedThrowsRichRationale()
+    await testServiceBlockIsAdvisory()
     await testWarnDedup()
-    await testBlockNeverDeduped()
+    await testServiceBlockWarningsAreDeduped()
+    await testExploratoryBlockBecomesWarning()
     await testTimeoutFailsOpen()
     await testNon200FailsOpen()
     await testDisabledFlagSkipsAll()
-    await testBuildBlockMessageWithoutAddendum()
-    await testBuildBlockMessagePrefersAddendum()
+    await testToolToastsArePerDistinctRisk()
     console.log("ok")
   } catch (err) {
     console.error("FAIL: unhandled exception", err)

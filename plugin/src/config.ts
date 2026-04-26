@@ -22,6 +22,12 @@ const parseBool = (raw: string | undefined): boolean => {
   return v === "1" || v === "true" || v === "yes" || v === "on"
 }
 
+const parseToastScope = (raw: string | undefined): "tool" | "system" | "both" => {
+  const v = raw?.trim().toLowerCase()
+  if (v === "system" || v === "both") return v
+  return "tool"
+}
+
 export const config = {
   url: process.env.AAG_URL ?? "http://localhost:4000",
   token: process.env.AAG_TOKEN,
@@ -37,17 +43,21 @@ export const config = {
     // a degraded service never stalls the agent's hot path; on timeout we
     // fail open (treat as risk_level=none).
     timeoutMs: parseInt10(process.env.AAG_PREFLIGHT_TIMEOUT_MS, 800),
+    // System prompt additions are hidden in opencode's transcript. Set this
+    // to show TUI toasts when Autopsy fires. The default visible toast is
+    // per risky tool call; set AAG_PREFLIGHT_TUI_TOAST_SCOPE=system or both
+    // if you also want the hidden-context injection toast.
+    tuiToast: parseBool(process.env.AAG_PREFLIGHT_TUI_TOAST),
+    tuiToastDurationMs: parseInt10(process.env.AAG_PREFLIGHT_TUI_TOAST_DURATION_MS, 30000),
+    tuiToastScope: parseToastScope(process.env.AAG_PREFLIGHT_TUI_TOAST_SCOPE),
     tools: parseToolList(process.env.AAG_PREFLIGHT_TOOLS, [
-      // Mutating — these can be blocked outright when the graph reports a
-      // high-confidence past-failure match.
+      // Mutating.
       "edit",
       "write",
       "bash",
       // Exploratory — we still call preflight on these so the graph can
       // record "agent attempted X exploration after similar past failures"
-      // and surface warnings on the dashboard. The service's `block`
-      // decision applies uniformly; for reads/greps it's almost always
-      // false (advisory-only).
+      // and surface warnings on the dashboard.
       "read",
       "grep",
     ]),

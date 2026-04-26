@@ -5,7 +5,7 @@ opencode plugin for Agent Autopsy Graph.
 ## What it does
 
 - Mirrors every opencode bus event to the AAG service via `POST /v1/events`
-- On `tool.execute.before` for tools in `AAG_PREFLIGHT_TOOLS` (default: `edit,write,bash,read,grep`), asks `POST /v1/preflight`. On `block: true` it throws a **rich rationale** (citing similar past runs, failure modes, and recommended fixes) to abort the call; on non-blocking risk it emits an `aag.preflight.warned` timeline event. See [Pre-flight context injection](#pre-flight-context-injection) below.
+- On `tool.execute.before` for tools in `AAG_PREFLIGHT_TOOLS` (default: `edit,write,bash,read,grep`), asks `POST /v1/preflight` and emits an `aag.preflight.warned` timeline event for risk. This path is advisory-only: it never blocks or changes tool execution. See [Pre-flight context injection](#pre-flight-context-injection) below.
 - On `experimental.chat.system.transform`, injects a preflight warning addendum into the system prompt
 - On `permission.replied` with reject, posts the run outcome + tries to capture rejection feedback
 - On `tool.execute.after` for file-modifying tools (`edit`, `write`, …), debounces and runs a **post-flight code-check suite** (lint / typecheck / test). Any non-zero check files a rejection (`failure_mode=automated_check_failed`) which lights up the dashboard and feeds the next preflight.
@@ -54,19 +54,17 @@ and acts on the response:
 
 | Service response                       | Plugin behavior                                                                                                      |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `block: true`                          | Throw an `Error` whose message cites the matching failure mode, similar past run ids, and recommended fixes. opencode surfaces this as a tool error; the model adapts on its next reasoning step. Also emits `aag.preflight.blocked` for the dashboard. |
+| `block: true`                          | Treat as advisory. Emit `aag.preflight.warned` with `service_block: true`; never throw and never alter tool args. Agent-facing guidance still arrives through the per-turn `experimental.chat.system.transform` injector. |
 | `risk_level ∈ {low, medium, high}`, no block | Emit `aag.preflight.warned` with the structured fields + `system_addendum`. **Does not throw** — soft warnings ride on the per-turn `experimental.chat.system.transform` injector. |
 | `risk_level: none` or service unreachable / 5xx / timeout | Silent. Fail-open. |
 
 The default tool set covers both **mutating** tools (`edit`, `write`, `bash`)
-where blocking is meaningful, and **exploratory** tools (`read`, `grep`)
-where blocking is rare but the warned-event telemetry still feeds the
-graph and dashboard.
+and **exploratory** tools (`read`, `grep`) so warned-event telemetry still
+feeds the graph and dashboard. Preflight never blocks any of them.
 
 `aag.preflight.warned` events are deduped per `(sessionID, tool, args, risk_level)`
 so the service's TTL cache returning the same response many times in one
-turn doesn't flood the timeline. `aag.preflight.blocked` events are NOT
-deduped — every block attempt is a meaningful intervention.
+turn doesn't flood the timeline.
 
 ### Knobs
 
@@ -74,16 +72,22 @@ deduped — every block attempt is a meaningful intervention.
 | ----------------------------- | ------- | --------------------------------------------------------------------------------------- |
 | `AAG_PREFLIGHT_DISABLED`      | `0`     | Set to `1`/`true` to skip preflight entirely — plugin never blocks or warns.            |
 | `AAG_PREFLIGHT_TIMEOUT_MS`    | `800`   | Hard ceiling on the `/v1/preflight` HTTP call. On timeout, fail-open.                   |
+| `AAG_PREFLIGHT_TUI_TOAST`     | `0`     | Set to `1`/`true` to show opencode toasts when Autopsy preflight fires. |
+| `AAG_PREFLIGHT_TUI_TOAST_DURATION_MS` | `30000` | How long the optional opencode toast stays visible. opencode's plugin API exposes duration, not a close button. |
+| `AAG_PREFLIGHT_TUI_TOAST_SCOPE` | `tool` | Which optional toasts to show: `tool` for one toast per risky tool call, `system` for hidden-context injection, or `both`. |
 | `AAG_PREFLIGHT_TOOLS`         | `edit,write,bash,read,grep` | Comma-separated tool names to preflight. Override to narrow / widen.        |
 
 ### Smoke test
 
 ```bash
+bun src/__smoke__/system-transform.smoke.ts
 bun src/__smoke__/tool-before.smoke.ts
 ```
 
-Stub-fetches the AAG service and runs through skip / block / warn / dedup /
-timeout / disabled paths. Prints `ok` and exits 0 on success.
+The system-transform smoke covers prompt addendum injection and the
+opencode session-message fallback. The tool-before smoke stub-fetches the
+AAG service and runs through skip / advisory service-block / warn / dedup /
+timeout / disabled paths. Both print `ok` and exit 0 on success.
 
 ## Post-flight checks
 

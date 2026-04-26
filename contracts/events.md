@@ -40,7 +40,7 @@ publishes them on the in-process pubsub for SSE.
 | AAG type                 | source                                   | use                                                           |
 | ------------------------ | ---------------------------------------- | ------------------------------------------------------------- |
 | `aag.preflight.warned`   | plugin `tool.execute.before`             | record that preflight returned a warning for this tool call   |
-| `aag.preflight.blocked`  | plugin `tool.execute.before` (threw)     | record that preflight aborted a tool call                     |
+| `aag.preflight.blocked`  | legacy plugin `tool.execute.before` (threw) | historical event for preflight-aborted tool calls; current plugin is advisory-only |
 | `aag.system.injected`    | `experimental.chat.system.transform`     | record that a preflight system addendum was injected          |
 
 These flow through the same `POST /v1/events` channel so the dashboard can
