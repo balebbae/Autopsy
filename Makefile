@@ -91,7 +91,18 @@ trace: ## Seed runs, then call /v1/preflight on each to verify the closed loop e
 reindex: ## Re-run the finalizer pipeline over every existing run (idempotent)
 	cd service && uv run python ../scripts/reindex.py
 
+# --- autopsy.surf landing -------------------------------------------------
+
+site-pack: ## Build dist/autopsy-surf.zip for direct upload to Cloudflare Pages (root domain)
+	mkdir -p dist
+	rm -f dist/autopsy-surf.zip
+	cd site && zip -r -X ../dist/autopsy-surf.zip . -x '.DS_Store' '*.swp'
+	@echo ""
+	@echo "  built dist/autopsy-surf.zip"
+	@echo "  upload at: https://dash.cloudflare.com/?to=/:account/pages/new/upload"
+
 clean: ## Remove generated artifacts
 	rm -rf service/.venv service/.pytest_cache service/.ruff_cache
 	rm -rf plugin/node_modules plugin/dist
 	rm -rf dashboard/node_modules dashboard/.next
+	rm -rf dist
