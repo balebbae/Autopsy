@@ -25,9 +25,37 @@ const parseBool = (raw: string | undefined): boolean => {
 export const config = {
   url: process.env.AAG_URL ?? "http://localhost:4000",
   token: process.env.AAG_TOKEN,
-  // Tools that warrant a preflight check before they run. Keep tight to avoid
-  // adding latency on every read/grep call.
-  preflightTools: new Set(["edit", "write", "bash"]),
+  // Preflight knobs (see plugin/src/handlers/tool-before.ts). The default
+  // tool set covers both *mutating* tools (where we may want to BLOCK) and
+  // *exploratory* tools (where we mainly want to record warned-events that
+  // feed the graph). Override with AAG_PREFLIGHT_TOOLS=edit,write,...
+  preflight: {
+    disabled: parseBool(process.env.AAG_PREFLIGHT_DISABLED),
+    // Hard ceiling on the preflight HTTP call. The service has a TTL cache
+    // so subsequent calls in the same turn are fast (≤5ms), but the first
+    // uncached call does an embed + ANN + recursive hop. We cap at 800ms so
+    // a degraded service never stalls the agent's hot path; on timeout we
+    // fail open (treat as risk_level=none).
+    timeoutMs: parseInt10(process.env.AAG_PREFLIGHT_TIMEOUT_MS, 800),
+    tools: parseToolList(process.env.AAG_PREFLIGHT_TOOLS, [
+      // Mutating — these can be blocked outright when the graph reports a
+      // high-confidence past-failure match.
+      "edit",
+      "write",
+      "bash",
+      // Exploratory — we still call preflight on these so the graph can
+      // record "agent attempted X exploration after similar past failures"
+      // and surface warnings on the dashboard. The service's `block`
+      // decision applies uniformly; for reads/greps it's almost always
+      // false (advisory-only).
+      "read",
+      "grep",
+    ]),
+  },
+  // Backwards-compat alias used by older callers. Prefer config.preflight.tools.
+  get preflightTools(): Set<string> {
+    return this.preflight.tools
+  },
   // Postflight code-check suite (see plugin/src/postflight.ts). Triggered
   // after the listed tools modify files; debounce collapses a flurry of
   // edits into a single check run after the agent goes quiet.

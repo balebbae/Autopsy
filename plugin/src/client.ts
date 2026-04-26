@@ -48,12 +48,23 @@ export const postRejection = (runId: string, body: RejectionPayload) =>
     body: JSON.stringify({ source: "plugin", ...body }),
   }).catch(() => {})
 
+// Bounded preflight call. `tool.execute.before` runs synchronously in the
+// agent's hot path, so a degraded service must never stall the chat. We
+// abort after `config.preflight.timeoutMs` and fail open (return null,
+// caller treats as risk_level=none).
 export const preflight = async (req: PreflightRequest): Promise<PreflightResponse | null> => {
-  const r = await fetch(`${config.url}/v1/preflight`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(req),
-  }).catch(() => null)
-  if (!r || !r.ok) return null
-  return (await r.json()) as PreflightResponse
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), config.preflight.timeoutMs)
+  try {
+    const r = await fetch(`${config.url}/v1/preflight`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(req),
+      signal: ctrl.signal,
+    }).catch(() => null)
+    if (!r || !r.ok) return null
+    return (await r.json()) as PreflightResponse
+  } finally {
+    clearTimeout(timer)
+  }
 }
