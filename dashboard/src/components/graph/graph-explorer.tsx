@@ -6,29 +6,20 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import {
   Activity,
-  FileJson,
   GitBranch,
-  Image as ImageIcon,
   Link2,
-  Maximize,
   Network,
   RefreshCw,
   Search,
-  Share2,
   Sparkles,
-  Upload,
   Wand2,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react"
 import { RetrievalView } from "./retrieval-view"
 import type { ForceGraphMethods } from "react-force-graph-2d"
 
 import {
   apiBaseUrl,
-  fetchGraphExport,
-  postGraphImport,
   type GraphEdge,
   type GraphNode,
   type Run,
@@ -47,11 +38,6 @@ import {
 } from "@/components/ui/select"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { EmptyState } from "@/components/primitives/empty-state"
 import { NodeDrawer } from "./node-drawer"
 import { EdgeCreateModal } from "./edge-create-modal"
@@ -314,92 +300,7 @@ export function GraphExplorer() {
     if (!fg) return
     const currentZoom = fg.zoom()
     fg.zoom(currentZoom / 1.4, 300)
-  }
-  const handleExportPng = () => {
-    // Get the canvas element from the force graph
-    const container = document.querySelector(".force-graph-container canvas") as HTMLCanvasElement
-    if (!container) {
-      toast.error("Could not find canvas element")
-      return
-    }
-    const png = container.toDataURL("image/png")
-    const a = document.createElement("a")
-    a.href = png
-    a.download = `aag-graph-${new Date().toISOString().slice(0, 10)}.png`
-    a.click()
-    toast.success("Graph exported as PNG")
-  }
-
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [shareOpen, setShareOpen] = React.useState(false)
-  const [busy, setBusy] = React.useState<"export" | "import" | null>(null)
-
-  const handleExportJson = async () => {
-    setBusy("export")
-    setShareOpen(false)
-    try {
-      const bundle = await fetchGraphExport({})
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
-        type: "application/json",
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      const slug = bundle.source?.source_label || bundle.source?.project || "export"
-      a.download = `aag-knowledge-${slug}-${new Date().toISOString().slice(0, 10)}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      const n = bundle.cases?.length ?? 0
-      toast.success(`Exported ${n} ${n === 1 ? "case" : "cases"}`)
-    } catch (e) {
-      toast.error(`Export failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const handleImportJson = () => {
-    setShareOpen(false)
-    fileInputRef.current?.click()
-  }
-
-  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    // Reset the input so the same file can be picked again on a retry.
-    event.target.value = ""
-    if (!file) return
-    setBusy("import")
-    try {
-      const text = await file.text()
-      const parsed: unknown = JSON.parse(text)
-      // Light shape check before we POST — surface a clear error if someone
-      // picks the wrong file rather than a generic 422 from the API.
-      const obj = parsed as { schema_version?: unknown; cases?: unknown }
-      if (typeof obj?.schema_version !== "number" || !Array.isArray(obj?.cases)) {
-        throw new Error("Not an Autopsy knowledge bundle (missing schema_version / cases)")
-      }
-      const result = await postGraphImport(parsed)
-      const added = result.cases_added
-      const skipped = result.cases_skipped
-      if (added > 0) {
-        toast.success(
-          `Imported ${added} ${added === 1 ? "case" : "cases"}` +
-            (skipped > 0 ? ` (${skipped} already present)` : ""),
-        )
-      } else if (skipped > 0) {
-        toast.info(`Bundle already imported (${skipped} duplicates skipped)`)
-      } else {
-        toast.info("Bundle was empty — nothing to import")
-      }
-      mutate()
-    } catch (e) {
-      toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  // Edge creation handlers
+  }  // Edge creation handlers
   const handleNodeClickForEdge = (nodeId: string) => {
     if (!edgeCreateMode) {
       setSelectedId(nodeId)
@@ -510,7 +411,7 @@ export function GraphExplorer() {
           </div>
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-3">
+        <div className="pointer-events-auto flex items-center gap-3 ml-auto">
           <Card className="flex items-center gap-1 p-1 backdrop-blur-md bg-card/90 shadow-md">
             <ViewToggleButton
               active={view === "force"}
@@ -625,121 +526,6 @@ export function GraphExplorer() {
               >
                 {edgeCreateMode ? <X className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleZoomOut}
-                aria-label="Zoom out"
-                className="text-muted-foreground h-10 w-10"
-              >
-                <ZoomOut className="h-5 w-5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleZoomIn}
-                aria-label="Zoom in"
-                className="text-muted-foreground h-10 w-10"
-              >
-                <ZoomIn className="h-5 w-5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleFit}
-                aria-label="Fit graph"
-                className="text-muted-foreground h-10 w-10"
-              >
-                <Maximize className="h-5 w-5" />
-              </Button>
-              <Popover open={shareOpen} onOpenChange={setShareOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Share knowledge"
-                    className="text-muted-foreground h-10 w-10"
-                    disabled={busy !== null}
-                  >
-                    {busy ? (
-                      <RefreshCw className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <Share2 className="h-5 w-5" />
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 p-2">
-                  <div className="px-2 pb-2 pt-1">
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Knowledge
-                    </p>
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      Share failure cases with another Autopsy instance.
-                    </p>
-                  </div>
-                  <div className="flex flex-col">
-                    <button
-                      type="button"
-                      onClick={handleExportJson}
-                      disabled={busy !== null}
-                      className={cn(
-                        "flex items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                        "hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50",
-                      )}
-                    >
-                      <FileJson className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div>
-                        <div className="font-medium">Export knowledge…</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          Download every finalized case as JSON.
-                        </div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleImportJson}
-                      disabled={busy !== null}
-                      className={cn(
-                        "flex items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                        "hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50",
-                      )}
-                    >
-                      <Upload className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div>
-                        <div className="font-medium">Import knowledge…</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          Merge a bundle from another instance.
-                        </div>
-                      </div>
-                    </button>
-                    <div className="my-1 border-t border-border/50" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShareOpen(false)
-                        handleExportPng()
-                      }}
-                      className="flex items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                    >
-                      <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div>
-                        <div className="font-medium">Save as PNG</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          Snapshot the current canvas view.
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/json,.json"
-                onChange={handleImportFile}
-                className="hidden"
-                aria-hidden="true"
-              />
             </div>
           </Card>
         </div>
