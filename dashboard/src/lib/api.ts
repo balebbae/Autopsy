@@ -3,7 +3,7 @@
 
 const baseUrl = process.env.NEXT_PUBLIC_AAG_URL ?? "http://localhost:4000"
 
-export type RunStatus = "active" | "inactive" | "approved" | "rejected" | "aborted"
+export type RunStatus = "active" | "approved" | "rejected" | "aborted"
 
 export type RunSummary = {
   run_id: string

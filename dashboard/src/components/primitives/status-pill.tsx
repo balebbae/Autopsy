@@ -1,10 +1,10 @@
 import * as React from "react"
-import { CheckCircle2, CircleSlash, Clock, Moon, XCircle } from "lucide-react"
+import { CheckCircle2, CircleSlash, Clock, XCircle } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
-export type RunStatus = "active" | "inactive" | "approved" | "rejected" | "aborted"
+export type RunStatus = "active" | "approved" | "rejected" | "aborted"
 
 export function StatusPill({
   status,
@@ -23,11 +23,6 @@ export function StatusPill({
       label: "Active",
       cls: "bg-sky-500/15 text-sky-600 dark:text-sky-300 border-sky-500/30",
       Icon: Clock,
-    },
-    inactive: {
-      label: "Inactive",
-      cls: "bg-slate-500/15 text-slate-600 dark:text-slate-300 border-slate-500/30",
-      Icon: Moon,
     },
     approved: {
       label: "Approved",

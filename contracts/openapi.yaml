@@ -62,7 +62,7 @@ paths:
           schema: { type: string }
         - in: query
           name: status
-          schema: { type: string, enum: [active, inactive, approved, rejected, aborted] }
+          schema: { type: string, enum: [active, approved, rejected, aborted] }
         - in: query
           name: limit
           schema: { type: integer, default: 50, maximum: 200 }
@@ -310,7 +310,7 @@ components:
         worktree: { type: string, nullable: true }
         started_at: { type: integer }
         ended_at: { type: integer, nullable: true }
-        status: { type: string, enum: [active, inactive, approved, rejected, aborted] }
+        status: { type: string, enum: [active, approved, rejected, aborted] }
         task: { type: string, nullable: true, description: "Latest user prompt" }
         rejection_reason:
           type: string

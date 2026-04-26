@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at       BIGINT NOT NULL,
     ended_at         BIGINT,
     status           TEXT NOT NULL DEFAULT 'active'
-                     CHECK (status IN ('active','inactive','approved','rejected','aborted')),
+                     CHECK (status IN ('active','approved','rejected','aborted')),
     rejection_reason TEXT,
     rejection_count  INTEGER NOT NULL DEFAULT 0,
     files_touched    INTEGER NOT NULL DEFAULT 0,

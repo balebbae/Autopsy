@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, select
 
 from aag.deps import SessionDep
 from aag.ingestion import assembler
@@ -25,20 +23,6 @@ from aag.schemas.events import EventIn
 from aag.schemas.runs import FeedbackIn
 
 router = APIRouter()
-
-# Runs that haven't received any events for this long are auto-transitioned
-# from 'active' to 'inactive'. 5 minutes is generous for normal agent turn
-# gaps; anything beyond that almost certainly means the session ended without
-# the plugin sending an explicit outcome.
-_STALE_THRESHOLD = timedelta(minutes=5)
-
-
-async def _expire_stale_runs(session: SessionDep) -> None:
-    """Transition active runs whose last activity is older than the threshold."""
-    cutoff = datetime.now(UTC) - _STALE_THRESHOLD
-    await session.execute(
-        update(Run).where(Run.status == "active", Run.updated_at < cutoff).values(status="inactive")
-    )
 
 
 def _normalize_diff_files(content: dict) -> list[dict]:
@@ -122,8 +106,6 @@ async def list_runs(
     status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(50, le=200),
 ) -> list[RunSummary]:
-    # Auto-transition stale active runs before querying.
-    await _expire_stale_runs(session)
     stmt = select(Run).order_by(Run.started_at.desc()).limit(limit)
     if project is not None:
         stmt = stmt.where(Run.project == project)
@@ -163,8 +145,6 @@ async def list_runs(
 
 @router.get("/runs/{run_id}", response_model=RunOut)
 async def get_run(run_id: str, session: SessionDep) -> RunOut:
-    # Auto-transition stale active runs before reading.
-    await _expire_stale_runs(session)
     run = await session.get(Run, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
