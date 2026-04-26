@@ -7,9 +7,9 @@ import {
   Activity,
   Network,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react"
 
+import { LogoMark } from "@/components/brand/logo-mark"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -22,17 +22,19 @@ export function Sidebar() {
   const pathname = usePathname()
   return (
     <aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-border bg-card/30 backdrop-blur-xl">
-      <div className="px-5 py-5 flex items-center gap-2">
-        <div className="relative h-8 w-8 rounded-md bg-gradient-to-br from-primary to-primary/40 grid place-items-center text-primary-foreground shadow">
-          <Sparkles className="h-4 w-4" />
-        </div>
+      <Link
+        href="/"
+        className="px-5 py-5 flex items-center gap-2.5 group"
+        aria-label="Autopsy home"
+      >
+        <LogoMark className="h-7 w-7 text-foreground transition-colors group-hover:text-primary" />
         <div className="flex flex-col">
           <span className="text-sm font-semibold leading-tight">Autopsy</span>
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground leading-tight">
             Agent Graph
           </span>
         </div>
-      </div>
+      </Link>
 
       <nav className="px-3 mt-2 flex flex-col gap-0.5">
         {navItems.map((item) => {
