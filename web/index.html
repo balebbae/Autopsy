@@ -267,7 +267,7 @@ main{
       <code class="command-text" id="cmd">curl -fsSL https://install.autopsy.surf/install.sh | bash</code>
       <button class="copy-btn" id="copy" type="button" aria-label="Copy install command">Copy</button>
     </div>
-    <p class="fineprint">Brings up postgres, the FastAPI service on <code>:4000</code>, and the dashboard on <code>:3000</code>, and installs the opencode plugin into the current project. Add <code>-s -- --plugin-only</code> to skip the local stack.</p>
+    <p class="fineprint">Brings up postgres, the FastAPI service on <code>:4000</code>, and the dashboard on <code>:3000</code>, and installs the opencode plugin into the current project. Prompts once for an optional Gemini API key for the LLM enhancer (press Enter to skip). Add <code>-s -- --plugin-only</code> to skip the stack, or <code>-s -- --no-prompt</code> to skip the key prompt.</p>
     <nav class="links">
       <a href="/install.sh">view install.sh <span class="arrow">→</span></a>
       <a href="https://github.com/balebbae/Autopsy" target="_blank" rel="noopener">source on GitHub <span class="arrow">→</span></a>

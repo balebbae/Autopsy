@@ -7,12 +7,15 @@
 #   curl -fsSL https://install.autopsy.surf/install.sh | bash
 #   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --plugin-only
 #   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-start
+#   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-prompt
 #
 # Flags:
 #   --plugin-only   Skip the local stack, install only the plugin (point
 #                   AAG_URL at an existing Autopsy service).
 #   --no-start      Set up everything but don't start service/dashboard.
 #                   Postgres still comes up.
+#   --no-prompt     Don't prompt for the optional Gemini API key. The service
+#                   stays in deterministic-classifier-only mode.
 #   --help, -h      Print this message.
 set -euo pipefail
 
@@ -40,23 +43,35 @@ Usage (from your project root):
   curl -fsSL https://install.autopsy.surf/install.sh | bash
   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --plugin-only
   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-start
+  curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-prompt
 
 Flags:
   --plugin-only   Skip the local stack, install only the plugin (point
                   AAG_URL at an existing Autopsy service).
   --no-start      Set up everything but do not start the service or dashboard.
                   Postgres still comes up.
+  --no-prompt     Don't prompt for the optional Gemini API key. The service
+                  stays in deterministic-classifier-only mode.
   --help, -h      Print this message.
+
+Environment:
+  AUTOPSY_HOME    Override the install root (default: ~/.autopsy).
+  AUTOPSY_NO_PROMPT=1
+                  Same as --no-prompt.
+  GEMINI_API_KEY  If set in the calling shell, skips the prompt and uses the
+                  given key for the LLM enhancer.
 HELP
 }
 
 # ---- args ----------------------------------------------------------------
 PLUGIN_ONLY=0
 NO_START=0
+NO_PROMPT="${AUTOPSY_NO_PROMPT:-0}"
 for arg in "$@"; do
   case "$arg" in
     --plugin-only) PLUGIN_ONLY=1 ;;
     --no-start)    NO_START=1 ;;
+    --no-prompt)   NO_PROMPT=1 ;;
     --help|-h)     print_help; exit 0 ;;
     *) warn "ignoring unknown arg: $arg" ;;
   esac
@@ -221,6 +236,47 @@ if ! grep -q '^AAG_URL=' "$ENV_FILE" 2>/dev/null; then
   okay "wrote AAG_URL=http://localhost:4000 to $ENV_FILE"
 fi
 
+# 6b. optional Gemini key (LLM enhancer). Skip if --no-prompt, no /dev/tty,
+#     or the key is already set in the calling shell or service .env.
+SERVICE_ENV="$REPO_DIR/.env"
+GEMMA_CONFIGURED=0
+
+write_gemma_env() {
+  # $1 = key
+  {
+    printf '\n# Autopsy LLM enhancer\n'
+    printf 'LLM_PROVIDER=gemma\n'
+    printf 'GEMINI_API_KEY=%s\n' "$1"
+    printf 'PREFLIGHT_LLM_ENABLED=true\n'
+  } >> "$SERVICE_ENV"
+}
+
+if grep -qE '^GEMINI_API_KEY=.+' "$SERVICE_ENV" 2>/dev/null; then
+  GEMMA_CONFIGURED=1
+  okay "Gemini key already in $SERVICE_ENV (LLM enhancer enabled)"
+elif [ -n "${GEMINI_API_KEY:-}" ]; then
+  write_gemma_env "$GEMINI_API_KEY"
+  GEMMA_CONFIGURED=1
+  okay "wrote GEMINI_API_KEY (from env) to $SERVICE_ENV"
+elif [ "$NO_PROMPT" -eq 0 ] && [ -e /dev/tty ]; then
+  printf '\n%sLLM enhancer (optional)%s\n' "$BOLD" "$RESET"
+  printf '  Autopsy works fine without it (deterministic classifier only).\n'
+  printf '  To enable LLM-augmented failure analysis, paste a Gemini API key from\n'
+  printf '  %shttps://ai.google.dev%s. Press Enter to skip.\n\n' "$DIM" "$RESET"
+  printf '  Gemini API key: '
+  GEMINI_INPUT=""
+  IFS= read -r GEMINI_INPUT < /dev/tty || GEMINI_INPUT=""
+  if [ -n "$GEMINI_INPUT" ]; then
+    write_gemma_env "$GEMINI_INPUT"
+    GEMMA_CONFIGURED=1
+    okay "wrote Gemini key to $SERVICE_ENV (LLM enhancer enabled)"
+  else
+    okay "skipped — running with deterministic classifier only"
+  fi
+else
+  log "skipping Gemini prompt (deterministic classifier only)"
+fi
+
 # 7. start service + dashboard
 SERVICE_PID="$RUN_DIR/service.pid"
 DASHBOARD_PID="$RUN_DIR/dashboard.pid"
@@ -302,6 +358,12 @@ if [ "$NO_START" -eq 0 ]; then
 fi
 
 # 8. final banner
+if [ "$GEMMA_CONFIGURED" -eq 1 ]; then
+  LLM_LINE="  ${BOLD}LLM${RESET}        Gemma via Google AI Studio (key in $SERVICE_ENV)"
+else
+  LLM_LINE="  ${BOLD}LLM${RESET}        ${DIM}deterministic classifier only — re-run to add a Gemini key${RESET}"
+fi
+
 cat <<EOF
 
 ${OK}Autopsy is up.${RESET}
@@ -311,6 +373,7 @@ ${OK}Autopsy is up.${RESET}
   ${BOLD}Dashboard${RESET}  http://localhost:3000
   ${BOLD}Postgres${RESET}   localhost:5432  ${DIM}db=aag user=aag pass=aag${RESET}
   ${BOLD}.env${RESET}       AAG_URL=http://localhost:4000
+$LLM_LINE
 
 ${BOLD}Files${RESET}
   $REPO_DIR                  ${DIM}# cloned repo${RESET}
