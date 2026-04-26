@@ -187,6 +187,17 @@ export function groupRunByAttempts(run: Run): GroupedRun {
     return 0
   }
 
+  // Rejections often share their ts with the next user message (the
+  // frustrated follow-up that triggered the plugin to record the
+  // rejection). Attribute those to the *previous* attempt — the one that
+  // actually failed — by using a strict-less-than boundary.
+  function findAttemptIndexForRejection(ts: number): number {
+    for (let i = attempts.length - 1; i >= 0; i--) {
+      if (ts > attempts[i].startTs) return i
+    }
+    return 0
+  }
+
   for (const evt of events) {
     const tc = readToolCall(evt)
     if (tc) {
@@ -204,7 +215,7 @@ export function groupRunByAttempts(run: Run): GroupedRun {
 
   const rejectionByAttempt = new Map<number, Rejection>()
   for (const rej of rejections) {
-    const i = findAttemptIndex(rej.ts)
+    const i = findAttemptIndexForRejection(rej.ts)
     // Keep the latest rejection per attempt. Rejections have already been
     // sorted ascending so a later one will overwrite.
     rejectionByAttempt.set(i, rej)
