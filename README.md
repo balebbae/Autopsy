@@ -1,145 +1,109 @@
+<div align="center">
+
+<img src="site/favicon.svg" alt="Autopsy" width="96" />
+
 # Agent Autopsy Graph
 
-A blackbox recorder for AI coding agents. Wraps an opencode runtime, records what the agent does, classifies failures, stores them in a graph + vector memory layer, and warns future runs before they repeat the same mistake.
+**Forensic memory for AI coding agents.** Every failure becomes a guardrail.
 
-## Repo layout
+A blackbox recorder that wraps an [opencode](https://opencode.ai/docs/)
+runtime, records every tool call and rejection, builds a failure graph in
+Postgres + pgvector, and warns future runs before they make the same
+mistake.
 
-```
-Autopsy/
-├── .opencode/     opencode project dir; plugins/ is auto-loaded by opencode
-├── plugin/        @aag/opencode-plugin — TS recorder + preflight client
-├── service/       Python FastAPI ingestion + analyzer + graph + preflight
-├── dashboard/     Next.js UI: live timeline, autopsy report, failure graph
-├── infra/         docker-compose for postgres+pgvector, init.sql
-├── contracts/     OpenAPI, DB schema, event mapping, run fixtures (HOUR-1 SoT)
-├── scripts/       dev / seed / replay helpers
-└── docs/          architecture, demo script, ownership map
-```
+[autopsy.surf](https://autopsy.surf) ·
+[install.autopsy.surf](https://install.autopsy.surf) ·
+[architecture](docs/architecture.md) ·
+[demo script](docs/demo-script.md)
 
-opencode itself is **not** vendored in this repo. Install it separately
-(<https://opencode.ai/docs/>) and run `opencode` from any project; our plugin
-is loaded via the `.opencode/plugins/` symlink.
+</div>
 
-## Quickstart
-
-Prereqs: `uv`, `node` 20+, `docker` (with compose). `opencode` and `bun` are
-only needed if you want to exercise the recorder end-to-end against a real
-agent run.
-
-```bash
-cp .env.example .env
-make dev                  # starts postgres + service + dashboard
-```
-
-That single command:
-
-1. Brings up **postgres+pgvector** at `localhost:5432` (via docker-compose; daemonized)
-2. Starts the **FastAPI service** at <http://localhost:4000> (`/docs` for OpenAPI)
-3. Starts the **Next.js dashboard** at <http://localhost:3000>
-
-Service + dashboard logs stream to the same terminal with `[svc]` / `[dash]`
-prefixes. **Ctrl+C** stops both cleanly. Postgres keeps running between
-sessions; `make compose-down` stops it.
+---
 
 ## Install in your project
 
-From **your project's root** (not the Autopsy repo), run:
+From your project's root:
 
 ```bash
 curl -fsSL https://install.autopsy.surf/install.sh | bash
 ```
 
-By default this brings up the full local stack:
+This brings up the full local stack (postgres, FastAPI service on `:4000`,
+Next.js dashboard on `:3000`), installs the opencode plugin into the
+current project, writes `AAG_URL` to the project's `.env`, and prompts once
+for an optional Gemini API key (press Enter to skip; Autopsy works fully
+without it). `~/.autopsy/stop.sh` brings everything back down.
 
-- clones the repo into `~/.autopsy/Autopsy`
-- starts postgres (pgvector) via `docker compose`
-- runs `uv sync` for the service and `npm install` for the dashboard
-- builds the plugin and drops it at `.opencode/plugins/autopsy.js` in the
-  current project
-- writes `AAG_URL=http://localhost:4000` to the project's `.env`
-- prompts once for an optional `GEMINI_API_KEY` (press Enter to skip).
-  When provided, the key is written to `~/.autopsy/Autopsy/.env` and the
-  service runs with the LLM enhancer + LLM-synthesized preflight prose
-  enabled. Otherwise the deterministic classifier + template addendum are
-  used (Autopsy still works fully without a key).
-- starts the FastAPI service on `:4000` and the dashboard on `:3000` in
-  the background. `~/.autopsy/stop.sh` stops everything.
+Flags: `--plugin-only` (skip the stack, point at a remote service),
+`--no-start` (set up but don't launch), `--no-prompt` (skip the Gemini key
+prompt). See `install.sh --help`.
 
-Then start `opencode` in the same directory; the plugin loads automatically
-and posts events to the local service. Open <http://localhost:3000> to watch
-runs live. Re-run the curl command at any time to update.
+## How it works
 
-Flags:
-
-- `--plugin-only` skip the stack, install only the plugin. Useful if you
-  already have an Autopsy service running somewhere — point `AAG_URL` at it.
-- `--no-start` set everything up but don't launch the service / dashboard
-  (postgres still comes up). Run `make dev` from `~/.autopsy/Autopsy`
-  whenever you're ready.
-- `--no-prompt` skip the Gemini key prompt entirely. Equivalent to setting
-  `AUTOPSY_NO_PROMPT=1`. If you have `GEMINI_API_KEY` set in your shell, the
-  prompt is also skipped and the key is written to `~/.autopsy/Autopsy/.env`
-  automatically.
-
-### For Autopsy contributors
-
-If you're working on the plugin itself, use the dev symlink instead:
-
-```bash
-make plugin-link          # symlinks plugin/src/index.ts into .opencode/plugins/
-opencode                  # loads the symlinked .ts source directly (hot-reloadable)
+```
+opencode runtime
+   │  events (tool calls, edits, chat, rejections, postflight checks)
+   ▼
+recorder plugin   ─POST─▶  AAG service  ─▶  Postgres + pgvector
+                              │
+                              │  classify failure → graph node + edges
+                              │  embed task text → vector index
+                              ▼
+                          /v1/preflight
+                              │
+                              │  ANN + 2-hop traversal over the failure graph
+                              ▼
+opencode runtime  ◀────  system addendum + (sometimes) hard-blocks tool calls
 ```
 
-### Populate the dashboard without opencode
+Every failed run becomes a guardrail for the next similar task. The
+dashboard at `localhost:3000` shows the live timeline, the failure graph,
+and which preflight hits Autopsy injected into the agent's system prompt.
+
+For the long version see [docs/architecture.md](docs/architecture.md).
+
+## Develop
+
+Prereqs: `uv`, `node` 20+, `bun`, `docker` (with compose).
 
 ```bash
-make replay               # streams contracts/fixtures/run-rejected-schema.json
+cp .env.example .env
+make dev                  # postgres + service + dashboard, Ctrl+C to stop
+make plugin-link          # symlink plugin/src/index.ts into .opencode/plugins/
+make seed                 # populate the graph with synthetic failures
+make trace                # end-to-end preflight smoke test
 ```
 
-Then refresh <http://localhost:3000>.
+Service + dashboard logs stream to the same terminal with `[svc]` /
+`[dash]` prefixes. Postgres keeps running between sessions; `make
+compose-down` stops it.
 
-## Hour-1 contracts
+| Package        | Lint / typecheck                     | Tests              |
+| -------------- | ------------------------------------ | ------------------ |
+| `service/`     | `make service-lint`                  | `make service-test` (needs postgres) |
+| `dashboard/`   | `cd dashboard && npx tsc --noEmit`   | none yet           |
+| `plugin/`      | `cd plugin && bun run typecheck`     | none yet           |
 
-Don't start coding before these four files are agreed on:
+CI (lint + typecheck across all three packages, plus shellcheck on
+`install.sh`) runs on every PR via `.github/workflows/ci.yml`.
 
-- `contracts/openapi.yaml` — every HTTP endpoint and its schema
-- `contracts/db-schema.sql` — Postgres DDL for raw + graph + embeddings tables
-- `contracts/events.md` — opencode bus event → AAG normalized event mapping
-- `contracts/fixtures/run-rejected-schema.json` — handcrafted demo run for offline iteration
+## Contracts
 
-See `docs/ownership.md` for who owns which directory.
-
-## Status
-
-The four pillars (plugin, service, analyzer/graph, dashboard) are end-to-end functional. The demo loop in `docs/demo-script.md` runs cleanly against `make dev`.
-
-### Plugin (`plugin/`)
-- opencode 1.x event/tool/permission/system handlers, batched event ingestion, preflight client.
-- `tool.execute.before` context injection (`handlers/tool-before.ts`): blocks high-confidence past-failure matches with a graph-cited rationale, emits `aag.preflight.warned` / `aag.preflight.blocked` for the dashboard. Bounded by `AAG_PREFLIGHT_TIMEOUT_MS` with fail-open.
-- Postflight code-check runner (`postflight.ts`): debounced lint/typecheck/test suite that files `automated_check_failed` rejections back into the graph.
-- Frustration detection on user chat messages, dedup'd per session.
-
-### Service (`service/`)
-- `/v1/events`, `/v1/runs`, run diff/outcome/feedback routes, SSE re-broadcast on `/v1/runs/:id/stream`.
-- Analyzer: four deterministic rules (`schema_change`, `missing_migration`, `missing_test`, `frontend_drift`), classifier, entity extractor, finalizer pipeline wired to the outcome route.
-- Graph: `upsert_node` / `upsert_edge` primitives plus a top-level writer that consumes classifier output, vector embeddings (`embeddings.write_for`) for semantic similarity, ANN + 2-hop CTE traversal in `/v1/preflight`, and `GET /v1/graph/{nodes,edges}` for the dashboard.
-- ~5k lines of pytest covering routes, finalizer, traversal, classifier, extractor, embeddings, and a full demo-loop integration test.
-
-### Dashboard (`dashboard/`)
-- Run list + detail pages with live SSE timeline (`run-refresher.tsx`, `timeline.tsx`).
-- 3D force-graph explorer at `/graph` with filtering by FailureMode / Component / ChangePattern.
-- Per-run preflight panel showing every `/v1/preflight` hit and which were blocking.
-
-### Open work / nice-to-haves
-- No CI yet — running `make service-lint`, `make service-test`, `bun run typecheck`, and the smoke tests on push would catch regressions early.
-- The classifier is regex/heuristic only. An optional LLM pass for "*why* the change is incomplete" (vs. pattern-matching paths) is wired up behind `preflight_llm_enabled` for the preflight synth path but not for classification itself.
-- `AAG_PREFLIGHT_TOOLS` defaults include `bash`, which means the injection handler can hard-block bash calls. Worth a deliberate yes/no per project.
+`contracts/openapi.yaml`, `contracts/db-schema.sql`, `contracts/events.md`,
+and `contracts/fixtures/*.json` are the source of truth for routes, schema,
+event mapping, and demo runs. Update them in the same commit when changing
+endpoints or tables. Ownership map in [docs/ownership.md](docs/ownership.md).
 
 ## Demo loop
 
-`docs/demo-script.md` contains the exact commands. Summary:
+[docs/demo-script.md](docs/demo-script.md) has the exact commands. Summary:
 
-1. Run a "schema field addition" task in opencode → user rejects with "missed migration".
-2. Service stores the run, analyzer classifies, graph writer records the failure.
-3. Start a similar new task → preflight injects a system addendum and (for high-confidence matches) blocks the offending tool call with a cited rationale; the dashboard shows the warning + blocked events on the timeline.
+1. Run a "schema field addition" task in opencode → user rejects with
+   "missed migration".
+2. Service stores the run, analyzer classifies, graph writer records the
+   failure.
+3. Start a similar new task → preflight injects a system addendum and (for
+   high-confidence matches) blocks the offending tool call with a cited
+   rationale; the dashboard shows the warning + blocked events on the
+   timeline.
 4. Agent does the right thing the first time.
