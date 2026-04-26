@@ -11,7 +11,8 @@ COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo 'docker compos
         plugin-install plugin-link plugin-unlink \
         dashboard-install dashboard-dev \
         seed replay reindex clean \
-        demo-benchmark demo-benchmark-quick demo-sweep
+        demo-benchmark demo-benchmark-quick demo-sweep \
+        demo-live demo-live-auto
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-20s %s\n", $$1, $$2}'
@@ -105,6 +106,12 @@ demo-benchmark-quick: ## Same benchmark, skip seeding (graph must already be war
 
 demo-sweep: ## Fire repeated prompts through preflight to demo retrieval consistency
 	cd service && uv run python ../scripts/demo-benchmark.py --sweep
+
+demo-live: ## Interactive live demo: walks through the full Autopsy flow step-by-step (pauses for narration)
+	cd service && uv run python ../scripts/demo-live.py
+
+demo-live-auto: ## Same live demo but auto-advances (no pauses, good for CI/testing)
+	cd service && uv run python ../scripts/demo-live.py --auto
 
 # --- autopsy.surf landing -------------------------------------------------
 

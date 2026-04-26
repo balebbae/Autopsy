@@ -1,0 +1,13 @@
+{
+  "name": "autopsy-test-project",
+  "version": "1.0.0",
+  "description": "A minimal TypeScript project for testing Autopsy live",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "typegen": "echo 'types regenerated from schema'"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
