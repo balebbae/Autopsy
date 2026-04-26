@@ -13,7 +13,6 @@ import {
   RefreshCw,
   Search,
   Share2,
-  Sparkles,
   Upload,
   Wand2,
   X,
@@ -30,7 +29,6 @@ import {
   type GraphNode,
   type RunSummary,
 } from "@/lib/api"
-import { buildMockGraph } from "@/lib/graph-mock"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -63,7 +61,6 @@ import { cn } from "@/lib/utils"
 type GraphPayload = {
   nodes: GraphNode[]
   edges: GraphEdge[]
-  source: "api" | "mock"
 }
 
 const fetcher = async (
@@ -119,18 +116,16 @@ function filterByRun(
 export function GraphExplorer() {
   const params = useSearchParams()
   const router = useRouter()
-  const forceMock = params?.get("mock") === "1"
   const runFilter = params?.get("run") ?? ""
 
   const { data, isLoading, mutate } = useSWR(
-    forceMock ? null : ["graph", apiBaseUrl],
+    ["graph", apiBaseUrl],
     () => fetcher(apiBaseUrl),
     { revalidateOnFocus: false },
   )
 
-  // Lightweight runs list for the focus-run dropdown. Skipped in mock mode.
   const { data: runsData } = useSWR(
-    forceMock ? null : ["runs", apiBaseUrl],
+    ["runs", apiBaseUrl],
     () => runsFetcher(apiBaseUrl),
     { revalidateOnFocus: false },
   )
@@ -149,17 +144,10 @@ export function GraphExplorer() {
   // Unfiltered base graph — used both for the all-runs view and for computing
   // which runs actually have evidence in the picker.
   const baseGraph: GraphPayload | null = React.useMemo(() => {
-    if (forceMock) {
-      const m = buildMockGraph()
-      return { ...m, source: "mock" }
-    }
     if (!data) return null
-    if (!data.ok || (data.nodes.length === 0 && data.edges.length === 0)) {
-      const m = buildMockGraph()
-      return { ...m, source: "mock" }
-    }
-    return { nodes: data.nodes, edges: data.edges, source: "api" }
-  }, [data, forceMock])
+    if (!data.ok) return null
+    return { nodes: data.nodes, edges: data.edges }
+  }, [data])
 
   // Set of run_ids that actually have at least one edge in the graph.
   // Used to filter the picker dropdown to runs the user can usefully focus on.
@@ -174,8 +162,7 @@ export function GraphExplorer() {
   const payload: GraphPayload | null = React.useMemo(() => {
     if (!baseGraph) return null
     if (runFilter) {
-      const filtered = filterByRun(baseGraph.nodes, baseGraph.edges, runFilter)
-      return { ...filtered, source: baseGraph.source }
+      return filterByRun(baseGraph.nodes, baseGraph.edges, runFilter)
     }
     return baseGraph
   }, [baseGraph, runFilter])
@@ -262,10 +249,6 @@ export function GraphExplorer() {
   const [busy, setBusy] = React.useState<"export" | "import" | null>(null)
 
   const handleExportJson = async () => {
-    if (forceMock) {
-      toast.error("Live data only — cannot export the mock fixture")
-      return
-    }
     setBusy("export")
     setShareOpen(false)
     try {
@@ -429,15 +412,9 @@ export function GraphExplorer() {
                 {visibleEdges.length}
               </span>
               <span className="text-[11px] text-muted-foreground">edges</span>
-              {payload?.source === "mock" ? (
-                <Badge variant="warning" className="ml-1 text-[10px]">
-                  Mock
-                </Badge>
-              ) : (
-                <Badge variant="muted" className="ml-1 text-[10px]">
-                  Live
-                </Badge>
-              )}
+              <Badge variant="muted" className="ml-1 text-[10px]">
+                Live
+              </Badge>
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
               Drag to pan · scroll to zoom · click to select
@@ -456,7 +433,7 @@ export function GraphExplorer() {
                 className="h-10 pl-10 w-64 text-sm"
               />
             </div>
-            {!forceMock ? (() => {
+            {(() => {
               // Only offer runs that actually have graph evidence — otherwise
               // selecting them produces an empty subgraph. Always include the
               // currently-selected run even if it has no evidence so the
@@ -486,7 +463,7 @@ export function GraphExplorer() {
                   </SelectContent>
                 </Select>
               )
-            })() : null}
+            })()}
             <Select value={layout} onValueChange={(v) => setLayout(v as LayoutKey)}>
               <SelectTrigger className="h-10 w-44 text-sm">
                 <Wand2 className="h-4 w-4 mr-2 opacity-60" />
@@ -577,7 +554,7 @@ export function GraphExplorer() {
                     <button
                       type="button"
                       onClick={handleExportJson}
-                      disabled={forceMock || busy !== null}
+                      disabled={busy !== null}
                       className={cn(
                         "flex items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
                         "hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50",
@@ -715,16 +692,11 @@ export function GraphExplorer() {
               <EmptyState
                 Icon={Network}
                 title="No graph data yet"
-                description="The /v1/graph routes haven't been implemented yet. Run `make replay` then `make seed` to populate the failure graph, or append ?mock=1 to preview the layout with the demo fixture."
+                description="Run `make replay` then `make seed` to populate the failure graph from finalized runs."
                 action={
                   <div className="flex items-center gap-2">
                     <Button onClick={() => mutate()} variant="outline">
                       <RefreshCw className="h-3.5 w-3.5" /> Retry
-                    </Button>
-                    <Button asChild variant="default">
-                      <a href="?mock=1">
-                        <Sparkles className="h-3.5 w-3.5" /> Load demo data
-                      </a>
                     </Button>
                   </div>
                 }
