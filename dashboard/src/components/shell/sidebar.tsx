@@ -57,19 +57,16 @@ export function Sidebar() {
             </Link>
           )
         })}
-      </nav>
-
-      <div className="mt-auto px-3 pb-3">
         <a
           href="https://autopsy.surf"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
         >
           <BookOpen className="h-4 w-4" />
           <span>Go to Docs</span>
         </a>
-      </div>
+      </nav>
     </aside>
   )
 }
