@@ -18,6 +18,7 @@ const FAILURE_MODE_LABELS: Record<string, string> = {
   security_concern: "Security concern",
   performance_concern: "Performance concern",
   manual_rejection: "Manual rejection",
+  automated_check_failed: "Automated check failed",
 }
 
 const SYMPTOM_LABELS: Record<string, string> = {
