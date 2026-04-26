@@ -26,6 +26,8 @@ publishes them on the in-process pubsub for SSE.
 | `session.updated`        | →         | update `runs.summary`, etc.                                            |
 | `session.idle`           | →         | finalize hint (assembler may auto-mark approved)                       |
 | `session.diff`           | →         | append to `artifacts(kind='diff')`; bump `files_touched`               |
+| `session.deleted`        | →         | plugin POSTs `/v1/runs/:id/outcome` with `aborted`; persisted on timeline |
+| `server.instance.disposed` | →       | plugin POSTs `/v1/runs/:id/outcome` with `aborted` for **every** still-active session it has tracked (process-wide event, no `sessionID`) |
 | `message.part.updated`   | →         | timeline rendering; do **not** persist part text deltas — too chatty   |
 | `tool.execute.before`    | →         | timeline marker; preflight already happened plugin-side                |
 | `tool.execute.after`     | →         | bump `tool_calls`; for `edit`/`write` extract diff into `artifacts`    |

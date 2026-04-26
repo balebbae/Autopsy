@@ -1,5 +1,5 @@
 import { enqueue, flush } from "../batcher.ts"
-import { postFeedback, postRejection } from "../client.ts"
+import { postFeedback, postOutcome, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
 import { FRUSTRATION_RE, markSessionFired } from "./frustration.ts"
@@ -68,6 +68,41 @@ const markPermissionFired = (key: string): boolean => {
 // FRUSTRATION_RE and markSessionFired are imported from ./frustration.ts
 // so the firedSessions dedup set is shared with the chat-message handler.
 
+// Sessions we've seen events for during this plugin process. We need this
+// because `server.instance.disposed` is process-wide (no sessionID) — when
+// opencode shuts down we want to flip every still-active run we've been
+// recording to `aborted`, otherwise the dashboard shows them as "Live"
+// forever. Entries are removed when we file an explicit outcome
+// (session.deleted or server.instance.disposed) so we don't double-post.
+//
+// Bounded LRU like the rest of this module's state.
+const ACTIVE_SESSIONS_LIMIT = 1024
+const activeSessions = new Set<string>()
+const trackActiveSession = (runId: string): void => {
+  if (activeSessions.has(runId)) {
+    activeSessions.delete(runId)
+    activeSessions.add(runId)
+    return
+  }
+  activeSessions.add(runId)
+  if (activeSessions.size > ACTIVE_SESSIONS_LIMIT) {
+    const oldest = activeSessions.values().next().value
+    if (oldest !== undefined) activeSessions.delete(oldest)
+  }
+}
+const untrackActiveSession = (runId: string): void => {
+  activeSessions.delete(runId)
+}
+// Exported so the smoke test can assert on / reset state.
+export const _activeSessions = activeSessions
+export const _resetEventState = (): void => {
+  activeSessions.clear()
+  firedSessions.clear()
+  firedPermissions.clear()
+  forcedTitleSent.clear()
+  sessionsWithDiff.clear()
+}
+
 // Lightweight typing for the slice of the opencode SDK client we use here.
 // Avoids importing the full SDK types into the plugin build graph.
 type OpencodeClientLike = {
@@ -81,6 +116,35 @@ const isPlaceholderTitle = (title: string): boolean =>
 
 // Track sessions where we already pushed a forced title so we don't spam.
 const forcedTitleSent = new Set<string>()
+
+// Process-wide shutdown handler. opencode emits `server.instance.disposed`
+// on its way down (graceful exit, /exit, etc.). We `await` here so opencode
+// has a chance to keep the event loop alive while our outcome POSTs land —
+// the alternative is the requests die in flight and runs stay pinned as
+// "Active" in the dashboard.
+//
+// Note: this handler can NEVER catch a SIGKILL or laptop-crash — those
+// kill the process before any event fires. The server-side stale-run
+// sweeper (R2 worker) is the safety net for those cases.
+const onServerInstanceDisposed = async (): Promise<void> => {
+  // Snapshot + clear before awaiting so re-entrant fires don't double-post.
+  const ids = Array.from(activeSessions)
+  activeSessions.clear()
+
+  // Drain any events the batcher is still holding so the timeline is
+  // complete before the analyzer fires on /outcome.
+  try {
+    await flush()
+  } catch {
+    // best-effort
+  }
+
+  if (ids.length === 0) return
+
+  // POST in parallel; allSettled so a single failure doesn't strand the
+  // others. postOutcome itself swallows network errors via .catch(() => {}).
+  await Promise.allSettled(ids.map((id) => postOutcome(id, "aborted")))
+}
 
 // Best-effort: fetch the current opencode session title and POST it as
 // autopsy.task.set with force=true. Called on session.idle so we pick up
@@ -128,11 +192,49 @@ export const onEvent = async (
     reply?: string
     feedback?: string
     part?: { type?: string; text?: string; time?: number }
+    info?: { id?: string }
   }
-  const runId = props.sessionID
+
+  // --- Process-wide lifecycle events (no per-session run_id) ---
+  // Handled BEFORE the run_id guard because `server.instance.disposed`
+  // doesn't carry a sessionID — it's our last chance to mark every still-
+  // active run we've been recording as `aborted` before opencode tears down.
+  if (e.type === "server.instance.disposed") {
+    await onServerInstanceDisposed()
+    return
+  }
+
+  // session.deleted carries the deleted Session in `properties.info`. The
+  // session id is in `info.id`, not `properties.sessionID`, so we extract
+  // it here before falling through to the standard `runId` path.
+  const runId = props.sessionID ?? props.info?.id
   if (!runId) return
 
   // --- Side-effects that must run BEFORE the noise filter ---
+
+  // Track every session id we observe so `server.instance.disposed` can
+  // flip the whole set to `aborted` later. We do this for every event
+  // type because any one of them is evidence the session is still live.
+  trackActiveSession(runId)
+
+  // session.deleted is the only per-session terminal signal opencode 1.x
+  // emits. Drain pending events first (so the analyzer sees the full
+  // timeline) then mark the run aborted. Without this, the dashboard
+  // pins the run as "Active / Live" forever.
+  if (e.type === "session.deleted") {
+    untrackActiveSession(runId)
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: e.type,
+      properties: e.properties,
+    })
+    await flush()
+    await postOutcome(runId, "aborted")
+    return
+  }
 
   // On session.idle (turn complete), refresh the run's display name from
   // opencode's session info. opencode auto-generates a meaningful title

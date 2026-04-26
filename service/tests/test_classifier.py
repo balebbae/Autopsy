@@ -129,6 +129,20 @@ class TestClassifierHelpers:
     def test_infer_task_type_none(self):
         assert _infer_task_type(None) is None
 
+    def test_change_patterns_dedupe_preserves_order(self):
+        # Multiple rules can emit symptoms with the same name (e.g. the
+        # baseline frontend_drift rule plus a REJECTION_RULE-derived
+        # symptom). The classifier must dedupe so downstream consumers
+        # (embeddings text, FailureCase row, dashboard render) don't see
+        # repeats — and must keep first-seen order.
+        symptoms = [
+            Symptom(name="frontend_type_drift", confidence=0.8),
+            Symptom(name="missing_test", confidence=0.5),
+            Symptom(name="frontend_type_drift", confidence=0.6),
+        ]
+        change_patterns = list(dict.fromkeys(s.name for s in symptoms))
+        assert change_patterns == ["frontend_type_drift", "missing_test"]
+
     def test_inline_diff(self):
         old = "a\nb\nc"
         new = "a\nb\nc\nd"

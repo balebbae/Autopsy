@@ -93,7 +93,7 @@ async def classify(
 
     if symptoms:
         failure_mode = _pick_failure_mode(symptoms)
-        change_patterns = [s.name for s in symptoms]
+        change_patterns = list(dict.fromkeys(s.name for s in symptoms))
         fix_pattern = MODE_TO_FIX.get(failure_mode)
         summary = ctx.rejection_reason or ", ".join(s.name for s in symptoms)
     else:

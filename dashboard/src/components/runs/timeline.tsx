@@ -25,6 +25,8 @@ const eventLabel: Record<string, string> = {
   "session.created": "Session created",
   "session.idle": "Session idle",
   "session.diff": "Workspace diff",
+  "session.deleted": "Session ended",
+  "server.instance.disposed": "opencode shut down",
   "tool.execute.before": "Tool starting",
   "tool.execute.after": "Tool finished",
   "permission.asked": "Permission asked",
