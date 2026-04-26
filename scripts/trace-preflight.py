@@ -182,7 +182,7 @@ def _run_probe(client: httpx.Client, probe: Probe) -> tuple[bool, list[str]]:
         # failure.
         msg = "risk_level == 'none'"
         if probe.paraphrase:
-            print(_warn(f"   ⚠ {msg} — expected with stub embedder; needs local/openai"))
+            print(_warn(f"   ⚠ {msg} — expected with stub embedder; needs gemini/local/openai"))
         else:
             failures.append(msg)
     if probe.seed_run_id not in similar and not probe.paraphrase:

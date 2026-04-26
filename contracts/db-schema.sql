@@ -157,7 +157,9 @@ CREATE INDEX IF NOT EXISTS graph_edges_type_idx   ON graph_edges(type);
 -- =========================================================================
 -- Embeddings (pgvector)
 -- The vector dimension is set for sentence-transformers/all-MiniLM-L6-v2 (384).
--- Change to 1536 if you swap to OpenAI text-embedding-3-small.
+-- Change to 768 for EMBED_PROVIDER=gemini (text-embedding-004) or 1536
+-- for EMBED_PROVIDER=openai (text-embedding-3-small).  After changing the
+-- provider, run `make embed-reset` to drop and recreate this table.
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS embeddings (

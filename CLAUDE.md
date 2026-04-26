@@ -29,7 +29,7 @@ The `Makefile` is the canonical command surface. Run from the repo root.
 | `make stop` | Kill service + dashboard processes; postgres stays up (use `make compose-down` to stop it too) |
 | `make compose-up` / `make compose-down` | Postgres in/out (volume preserved) |
 | `make db-reset` | **DESTRUCTIVE** — drops the postgres volume; reapplies `contracts/db-schema.sql` on next boot |
-| `make embed-reset` | **DESTRUCTIVE** — drop + recreate the embeddings table. Required after switching `EMBED_PROVIDER` between providers with different dims (stub/local=384, openai=1536) |
+| `make embed-reset` | **DESTRUCTIVE** — drop + recreate the embeddings table. Required after switching `EMBED_PROVIDER` between providers with different dims (stub/local=384, gemini=768, openai=1536) |
 | `make service-dev` / `make service-test` / `make service-lint` | Uvicorn :4000 / pytest / ruff |
 | `make dashboard-dev` | Next.js dev server on :3000 |
 | `make plugin-link` / `make plugin-unlink` | Symlink `plugin/src/index.ts` into `.opencode/plugins/autopsy.ts` |
@@ -93,7 +93,7 @@ opencode runtime ──┐
 - **All write paths are idempotent.** Events upsert on `(run_id, event_id)`. Graph edges upsert on `(source_id, target_id, type, evidence_run_id)`. Embeddings upsert on `(entity_type, entity_id)`.
 - **Plugin must never block the LLM stream.** The `event` hook uses a fire-and-forget batcher (200ms / 32-event flush). Only `tool.execute.before` is allowed to block, and only briefly — that's the synchronous preflight.
 - **No LLM in the preflight critical path.** Vector ANN + graph traversal must work offline. Gemma is opt-in (`LLM_PROVIDER=gemma`) and runs only at run-end inside the finalizer.
-- **Embedding dim is hardcoded at 384** in `db-schema.sql` (sentence-transformers/all-MiniLM-L6-v2). Switching to OpenAI `text-embedding-3-small` needs a schema bump to 1536.
+- **Embedding dim is hardcoded at 384** in `db-schema.sql` (sentence-transformers/all-MiniLM-L6-v2). Switching to Gemini `text-embedding-004` needs 768; OpenAI `text-embedding-3-small` needs 1536. Run `make embed-reset` after changing providers.
 - **Two databases is one too many.** Recursive CTEs over `graph_edges` cover the traversal — don't reach for Neo4j.
 - **In-process pubsub.** `aag.ingestion.pubsub` is single-process only. Replace with Postgres `LISTEN/NOTIFY` or Redis if scaling beyond one uvicorn worker.
 
@@ -103,7 +103,7 @@ opencode runtime ──┐
 
 - `DATABASE_URL` — defaults to `postgresql+asyncpg://aag:aag@localhost:5432/aag`. The `+asyncpg` driver hint is required.
 - `AAG_URL`, `AAG_TOKEN` — plugin → service.
-- `EMBED_PROVIDER` ∈ {`stub`, `local`, `openai`} — defaults to `stub` (deterministic sha256-hashed vectors, no model download). Tests force `stub`.
+- `EMBED_PROVIDER` ∈ {`stub`, `local`, `openai`, `gemini`} — defaults to `stub` (deterministic sha256-hashed vectors, no model download). `gemini` is recommended (free, uses `GEMINI_API_KEY`). Tests force `stub`.
 - `LLM_PROVIDER` ∈ {`none`, `gemma`} + `GEMINI_API_KEY` + `GEMMA_MODEL` — opt-in classifier enhancer.
 - `NEXT_PUBLIC_AAG_URL` — dashboard → service.
 

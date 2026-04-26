@@ -19,6 +19,7 @@ from aag.schemas.runs import FailureCaseOut
 
 if TYPE_CHECKING:
     from aag.analyzer.extractor import Extraction
+    from aag.config import Settings
 
 # Caps on patch / error indexing per run, so a noisy run with hundreds of
 # tool calls doesn't blow up the embeddings table or hammer a paid embed API.
@@ -33,6 +34,34 @@ def _stub_embed(text: str, dim: int) -> list[float]:
     # cheap deterministic float vector in [-1, 1]
     raw = (digest * ((dim // len(digest)) + 1))[:dim]
     return [(b - 128) / 128.0 for b in raw]
+
+
+_GEMINI_EMBED_MODEL = "models/text-embedding-004"
+
+
+async def _gemini_embed(texts: list[str], settings: Settings) -> list[float]:
+    """Embed a single text via Google ``text-embedding-004`` (free-tier, 768-d)."""
+    import google.generativeai as genai  # type: ignore
+
+    genai.configure(api_key=settings.gemini_api_key)
+    result = genai.embed_content(model=_GEMINI_EMBED_MODEL, content=texts[0])
+    return [float(x) for x in result["embedding"]]
+
+
+async def _gemini_embed_batch(texts: list[str], settings: Settings) -> list[list[float]]:
+    """Batch-embed via Google ``text-embedding-004``.
+
+    ``embed_content`` accepts a list of strings and returns a list of
+    vectors in one round-trip (free tier: 1 500 req/min).
+    """
+    import google.generativeai as genai  # type: ignore
+
+    genai.configure(api_key=settings.gemini_api_key)
+    result = genai.embed_content(model=_GEMINI_EMBED_MODEL, content=texts)
+    vecs = result["embedding"]
+    if texts and not isinstance(vecs[0], list):
+        return [[float(x) for x in vecs]]
+    return [[float(x) for x in v] for v in vecs]
 
 
 async def embed(text: str) -> list[float]:
@@ -56,6 +85,9 @@ async def embed(text: str) -> list[float]:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         resp = await client.embeddings.create(model=settings.embed_model, input=text)
         return list(resp.data[0].embedding)
+
+    if settings.embed_provider == "gemini":
+        return await _gemini_embed([text], settings)
 
     raise ValueError(f"unknown EMBED_PROVIDER: {settings.embed_provider}")
 
@@ -85,6 +117,9 @@ async def embed_batch(texts: list[str]) -> list[list[float]]:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         resp = await client.embeddings.create(model=settings.embed_model, input=texts)
         return [list(d.embedding) for d in resp.data]
+
+    if settings.embed_provider == "gemini":
+        return await _gemini_embed_batch(texts, settings)
 
     raise ValueError(f"unknown EMBED_PROVIDER: {settings.embed_provider}")
 
