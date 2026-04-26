@@ -352,14 +352,25 @@ function RunsTable({ runs }: { runs: RunSummary[] }) {
                 <Link
                   href={`/runs/${r.run_id}`}
                   className="block hover:underline cursor-pointer"
+                  title={r.task ?? r.run_id}
                 >
                   <div className="font-medium text-foreground truncate">
                     {r.task ?? "Untitled run"}
                   </div>
-                  <div className="text-[11px] font-mono text-muted-foreground truncate">
-                    {shortId(r.run_id)}
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="font-mono shrink-0">{shortId(r.run_id)}</span>
                     {r.rejection_reason ? (
-                      <span className="ml-2 text-red-500/80">{r.rejection_reason}</span>
+                      <>
+                        <span aria-hidden className="text-muted-foreground/50">
+                          ·
+                        </span>
+                        <span
+                          className="truncate text-red-500/85 dark:text-red-300/85"
+                          title={r.rejection_reason}
+                        >
+                          {r.rejection_reason}
+                        </span>
+                      </>
                     ) : null}
                   </div>
                 </Link>

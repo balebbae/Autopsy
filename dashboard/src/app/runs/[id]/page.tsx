@@ -25,7 +25,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
       <RunHeader run={run} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <aside className="lg:col-span-3 space-y-4 order-2 lg:order-1">
+        <aside className="lg:col-span-3 space-y-4 order-2 lg:order-1 min-w-0">
           <OutcomeCard run={run} />
           <MetricsCard run={run} />
         </aside>
@@ -35,7 +35,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
           <DiffsPanel snapshots={run.diffs} />
         </div>
 
-        <aside className="lg:col-span-3 order-3 space-y-4">
+        <aside className="lg:col-span-3 order-3 space-y-4 min-w-0">
           <AutopsyCard failure={run.failure_case} run={run} />
           <PreflightCard hits={run.preflight_hits ?? []} />
         </aside>

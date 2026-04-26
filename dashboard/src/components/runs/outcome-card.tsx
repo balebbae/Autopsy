@@ -130,15 +130,15 @@ export function OutcomeCard({ run }: { run: Run }) {
   if (run.status === "rejected") {
     return (
       <Card className="border-red-500/30 bg-red-500/5 p-4 text-sm space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-2 text-red-700 dark:text-red-300 font-medium">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="inline-flex shrink-0 items-center gap-2 text-red-700 dark:text-red-300 font-medium">
             <AlertTriangle className="h-4 w-4" /> Rejected
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 ml-auto">
             {failure ? (
               <Badge
                 variant="outline"
-                className="text-[10px] py-0.5 px-1.5 bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30"
+                className="max-w-full whitespace-normal text-[10px] py-0.5 px-1.5 bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 leading-tight"
                 title={failure.failure_mode}
               >
                 {humanizeFailureMode(failure.failure_mode)}
@@ -263,15 +263,17 @@ function AnalyzingPill({ compact = false }: { compact?: boolean }) {
 
 function SuggestedFix({ text }: { text: string }) {
   return (
-    <p className="text-xs text-foreground/80 flex items-start gap-1.5 border-l-2 border-primary/40 pl-2">
-      <Wand2 className="h-3 w-3 mt-0.5 text-primary shrink-0" />
-      <span>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">
+    <div className="flex items-start gap-2 border-l-2 border-primary/40 pl-2.5 py-0.5">
+      <Wand2 className="h-3 w-3 mt-1 text-primary shrink-0" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           Suggested fix
-        </span>
-        {text}
-      </span>
-    </p>
+        </p>
+        <p className="text-xs leading-snug text-foreground/85 [overflow-wrap:anywhere]">
+          {text}
+        </p>
+      </div>
+    </div>
   )
 }
 
@@ -287,7 +289,7 @@ function RejectionBadge({ count, tone }: { count: number; tone: Tone }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums",
         palette[tone],
       )}
     >
@@ -300,39 +302,59 @@ function RejectionBadge({ count, tone }: { count: number; tone: Tone }) {
 function RejectionList({ rejections }: { rejections: Rejection[] }) {
   const groups = React.useMemo(() => groupRejections(rejections), [rejections])
   return (
-    <ol className="space-y-2 border-t border-border/50 pt-3">
+    <ol className="space-y-3 border-t border-border/50 pt-3">
       {groups.map((g, idx) => {
         const r = g.latest
         const grouped = g.count > 1
         const firstSeen = new Date(g.firstTs).toLocaleTimeString()
         const lastSeen = new Date(r.ts).toLocaleTimeString()
+        const symptomChips = r.symptoms
+          ? r.symptoms
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : []
         return (
           <li key={g.id} className="text-xs">
-            <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-medium">
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/15 px-1 text-[10px] tabular-nums">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500/15 px-1 text-[10px] font-medium text-red-700 dark:text-red-300 tabular-nums">
                 {idx + 1}
               </span>
-              <span className="text-foreground/80" title={r.failure_mode ?? undefined}>
+              <span
+                className="min-w-0 flex-1 font-medium leading-snug text-foreground/90 [overflow-wrap:anywhere]"
+                title={r.failure_mode ?? undefined}
+              >
                 {r.failure_mode ? humanizeFailureMode(r.failure_mode) : "Rejection"}
               </span>
               {grouped ? (
                 <span
-                  className="inline-flex items-center gap-0.5 rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-300 tabular-nums"
-                  title={`Same failure refiled ${g.count} times — first at ${firstSeen}, latest at ${lastSeen}`}
+                  className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-300 tabular-nums"
+                  title={`Same failure refiled ${g.count} times \u2014 first at ${firstSeen}, latest at ${lastSeen}`}
                 >
                   <RotateCcw className="h-2.5 w-2.5" />×{g.count}
                 </span>
               ) : null}
               <span
-                className="text-muted-foreground tabular-nums ml-auto"
+                className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground tabular-nums"
                 title={grouped ? `first at ${firstSeen}` : undefined}
               >
                 {lastSeen}
               </span>
             </div>
-            <p className="mt-1 text-foreground/90 leading-snug">{r.reason}</p>
-            {r.symptoms ? (
-              <p className="mt-1 font-mono text-[11px] text-muted-foreground">{r.symptoms}</p>
+            <p className="mt-1 leading-snug text-foreground/85 [overflow-wrap:anywhere]">
+              {r.reason}
+            </p>
+            {symptomChips.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {symptomChips.map((s) => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
             ) : null}
           </li>
         )

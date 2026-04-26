@@ -794,7 +794,17 @@ export function GraphExplorer() {
       </div>
 
       {/* Canvas */}
-      <div className={cn("flex-1 relative", view !== "force" && "pt-20")}>
+      <div
+        className={cn(
+          // `min-w-0` is critical: without it, this `flex-1` item inherits
+          // `min-width: auto` and expands to fit its widest descendant, so
+          // `overflow-x-auto` on the timeline scroller never engages and
+          // wide content (multi-attempt timelines, retrieval traces) just
+          // pushes the layout instead of scrolling.
+          "flex-1 relative min-w-0",
+          view !== "force" && "pt-20",
+        )}
+      >
         {view === "retrieval" ? (
           <RetrievalView initialTask={taskParam} onTaskChange={setTaskParam} />
         ) : view !== "force" ? (

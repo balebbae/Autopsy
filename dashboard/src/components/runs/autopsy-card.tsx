@@ -70,7 +70,7 @@ export function AutopsyCard({
           </p>
           <Badge
             variant="outline"
-            className="mt-1.5 text-sm font-medium bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 py-1 px-2.5"
+            className="mt-1.5 max-w-full whitespace-normal py-1 px-2.5 text-sm font-medium leading-tight bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30 [overflow-wrap:anywhere]"
             title={failure.failure_mode}
           >
             {humanizeFailureMode(failure.failure_mode)}
@@ -81,10 +81,12 @@ export function AutopsyCard({
             <p className="text-[11px] uppercase tracking-widest text-muted-foreground">
               Suggested fix
             </p>
-            <p className="mt-1.5 text-sm flex items-start gap-1.5">
-              <Wand2 className="h-3.5 w-3.5 mt-0.5 text-primary shrink-0" />
-              <span>{failure.fix_pattern}</span>
-            </p>
+            <div className="mt-1.5 flex items-start gap-2">
+              <Wand2 className="h-3.5 w-3.5 mt-1 text-primary shrink-0" />
+              <p className="min-w-0 flex-1 text-sm leading-snug text-foreground/90 [overflow-wrap:anywhere]">
+                {failure.fix_pattern}
+              </p>
+            </div>
           </div>
         ) : null}
         {failure.symptoms.length > 0 ? (
@@ -92,19 +94,23 @@ export function AutopsyCard({
             <p className="text-[11px] uppercase tracking-widest text-muted-foreground mb-2">
               Symptoms
             </p>
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {failure.symptoms.map((s, i) => (
-                <li key={`${s.name}-${i}`}>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-medium" title={s.name}>
-                      {humanizeSymptom(s.name)}
-                    </span>
-                  </div>
-                  <ConfidenceBar value={s.confidence} className="mt-1" />
+                <li key={`${s.name}-${i}`} className="space-y-1.5">
+                  <span
+                    className="block text-sm font-medium leading-snug [overflow-wrap:anywhere]"
+                    title={s.name}
+                  >
+                    {humanizeSymptom(s.name)}
+                  </span>
+                  <ConfidenceBar value={s.confidence} />
                   {s.evidence?.length ? (
-                    <ul className="mt-1.5 ml-1 text-[11px] text-muted-foreground list-disc list-inside space-y-0.5">
+                    <ul className="ml-1 list-disc list-outside pl-3 space-y-0.5 text-[11px] text-muted-foreground">
                       {s.evidence.slice(0, 3).map((e, i) => (
-                        <li key={i} className="font-mono">
+                        <li
+                          key={i}
+                          className="font-mono leading-snug [overflow-wrap:anywhere]"
+                        >
                           {e}
                         </li>
                       ))}
@@ -156,7 +162,7 @@ export function AutopsyCard({
           </>
         ) : null}
         {failure.summary ? (
-          <p className="text-xs text-muted-foreground italic border-l-2 border-border pl-3">
+          <p className="border-l-2 border-border pl-3 text-xs italic leading-snug text-muted-foreground [overflow-wrap:anywhere]">
             {failure.summary}
           </p>
         ) : null}
