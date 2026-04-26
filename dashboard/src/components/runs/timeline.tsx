@@ -128,7 +128,7 @@ export function RunTimeline({
           No events recorded.
         </div>
       ) : (
-        <ol className="relative px-3 pt-2 pb-4 max-h-[600px] overflow-y-auto">
+        <ol className="relative px-3 pt-2 pb-4 max-h-[420px] overflow-y-auto">
           <AnimatePresence initial={false}>
             {merged.map(({ event: e, repeat, lastTs }, idx) => {
               const key = e.event_id ?? `${e.ts}:${e.type}:${idx}`
@@ -215,11 +215,10 @@ function TimelineRow({
   const severity = severityForEvent(event)
   return (
     <motion.li
-      layout
-      initial={isNew ? { opacity: 0, y: -8 } : false}
+      initial={isNew ? { opacity: 0, y: -6 } : false}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.25, ease: "easeOut" }}
+      exit={{ opacity: 0, height: 0, overflow: "hidden" }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       className="relative pr-2 py-1"
     >
       <button
