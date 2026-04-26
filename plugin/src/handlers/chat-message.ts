@@ -70,6 +70,10 @@ export const onChatMessage = async (
   }
   enqueue(taskEv)
 
+  // Frustration detection: check before enqueuing so we can tag the
+  // chat.message event with a `frustrated` flag for the dashboard.
+  const frustrated = FRUSTRATION_RE.test(text) && markSessionFired(runId)
+
   // Emit a chat.message event so the service-side classifier can
   // analyze user messages for sentiment via ctx.user_messages.
   const chatEv: EventIn = {
@@ -78,13 +82,12 @@ export const onChatMessage = async (
     worktree: ctx.worktree,
     ts: Date.now(),
     type: "chat.message",
-    properties: { sessionID: runId, role: "user", text },
+    properties: { sessionID: runId, role: "user", text, frustrated },
   }
   enqueue(chatEv)
 
-  // Frustration detection: file a rejection once per session when the
-  // user's message matches known frustration patterns.
-  if (FRUSTRATION_RE.test(text) && markSessionFired(runId)) {
+  // File a rejection + feedback when frustration is detected.
+  if (frustrated) {
     const snippet = text.slice(0, 300)
     await flush()
     await postRejection(runId, {

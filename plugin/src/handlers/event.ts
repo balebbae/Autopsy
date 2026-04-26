@@ -203,7 +203,7 @@ export const onEvent = async (
       worktree: ctx.worktree,
       ts: Date.now(),
       type: "chat.message",
-      properties: { sessionID: runId, role: "user", text: text.trim() },
+      properties: { sessionID: runId, role: "user", text: text.trim(), frustrated: true },
     })
     await flush()
     setLatestUserMessage(text)
