@@ -10,7 +10,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Vector dim per provider. The embeddings.vector column is sized from this at
 # table-creation time, so flipping providers without `make embed-reset` will
 # fail at insert. db.verify_vector_dim() catches the mismatch at startup.
-PROVIDER_DIM: dict[str, int] = {"stub": 384, "local": 384, "openai": 1536, "gemini": 768}
+#
+# stub and gemini both default to 768 so dev / test environments can switch
+# between them without rerunning embed-reset. Stub vectors are sha256-derived
+# noise either way; the dim is just a shape contract with the schema. local
+# and openai keep their native dims (384 / 1536) and DO require embed-reset
+# when switched to.
+PROVIDER_DIM: dict[str, int] = {"stub": 768, "local": 384, "openai": 1536, "gemini": 768}
 
 
 class Settings(BaseSettings):
@@ -29,7 +35,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://aag:aag@localhost:5432/aag"
 
     # Embeddings. Dim is derived from provider via the property below.
-    embed_provider: Literal["stub", "local", "openai", "gemini"] = "stub"
+    # Default is gemini (Google ``gemini-embedding-001``, MRL-truncated to
+    # 768d) — free-tier, semantically meaningful, and the only Google
+    # embedding model still accessible via the ``google-generativeai`` SDK
+    # after ``text-embedding-004`` was removed from v1beta. Requires
+    # GEMINI_API_KEY. Set EMBED_PROVIDER=stub for offline / no-key dev.
+    embed_provider: Literal["stub", "local", "openai", "gemini"] = "gemini"
     embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # Optional API keys

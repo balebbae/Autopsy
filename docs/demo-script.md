@@ -12,7 +12,7 @@ make demo-prep            # boots postgres, picks the right embedding provider,
 make dashboard-install    # one-time npm install for the dashboard.
 ```
 
-`make demo-prep` is idempotent — re-run any time. By default it picks `EMBED_PROVIDER=stub` (deterministic hash, byte-identical-only retrieval). For real semantic similarity in the demo flow below, set `GEMINI_API_KEY` in `.env` (recommended — free, same key as the Gemma classifier) and re-run `make demo-prep`, which will auto-promote you to `gemini` (Google `text-embedding-004`, 768-d). Alternatively set `OPENAI_API_KEY` or run `cd service && uv sync --extra ml` for the `local` provider.
+`make demo-prep` is idempotent — re-run any time. The default `EMBED_PROVIDER` is now `gemini` (Google `gemini-embedding-001` MRL-truncated to 768d, free tier — set `GEMINI_API_KEY` in `.env`, same key as the Gemma classifier). Without a key, `demo-prep` auto-falls-back to `stub` (deterministic hash, byte-identical-only retrieval) which uses the same 768-d schema, so swapping between gemini and stub never requires `make embed-reset`. Alternatively set `OPENAI_API_KEY` (1536d, requires `make embed-reset`) or run `cd service && uv sync --extra ml` for the `local` provider (384d, also requires `make embed-reset`).
 
 ## Run the demo
 

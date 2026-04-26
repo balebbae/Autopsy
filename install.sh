@@ -285,7 +285,7 @@ elif [ -n "${GEMINI_API_KEY:-}" ]; then
 elif [ "$NO_PROMPT" -eq 0 ] && [ -e /dev/tty ]; then
   printf '\n%sGemini API key (optional, recommended)%s\n' "$BOLD" "$RESET"
   printf '  Enables LLM-augmented failure analysis AND semantic-similarity\n'
-  printf '  retrieval (Google text-embedding-004, free tier).\n'
+  printf '  retrieval (Google gemini-embedding-001 truncated to 768d, free tier).\n'
   printf '  Without it, retrieval falls back to deterministic stub embeddings\n'
   printf '  that only match byte-identical task strings.\n'
   printf '  Get a key at %shttps://ai.google.dev%s. Press Enter to skip.\n\n' "$DIM" "$RESET"
@@ -304,8 +304,9 @@ else
 fi
 
 # Flip embeddings to gemini when (and only when) the key is configured.
-# This must happen before the service starts so verify_vector_dim() doesn't
-# crash on the dim mismatch baked into contracts/db-schema.sql (vector(384)).
+# Both gemini and stub default to 768-d, so the schema in db-schema.sql
+# (vector(768)) matches either path; this assignment is mostly for clarity
+# in .env. We still embed-reset below to give the install a known-good state.
 if [ "$GEMMA_CONFIGURED" -eq 1 ]; then
   if set_embed_provider gemini; then
     EMBED_PROVIDER_CHANGED=1

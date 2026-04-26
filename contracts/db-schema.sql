@@ -156,10 +156,18 @@ CREATE INDEX IF NOT EXISTS graph_edges_type_idx   ON graph_edges(type);
 
 -- =========================================================================
 -- Embeddings (pgvector)
--- The vector dimension is set for sentence-transformers/all-MiniLM-L6-v2 (384).
--- Change to 768 for EMBED_PROVIDER=gemini (text-embedding-004) or 1536
--- for EMBED_PROVIDER=openai (text-embedding-3-small).  After changing the
--- provider, run `make embed-reset` to drop and recreate this table.
+-- The default vector dimension is 768, sized for EMBED_PROVIDER=gemini
+-- (Google ``gemini-embedding-001`` MRL-truncated to 768d via
+-- ``output_dimensionality=768``). The deterministic stub provider also
+-- emits 768d vectors so dev/test environments share this schema without
+-- needing ``make embed-reset``.
+--
+-- Other providers re-size at the SQLAlchemy level (``Vector(embed_dim)``):
+--   - ``EMBED_PROVIDER=local``   sentence-transformers/all-MiniLM-L6-v2 → 384d
+--   - ``EMBED_PROVIDER=openai``  text-embedding-3-small → 1536d
+-- After switching to one of those, run ``make embed-reset`` to drop and
+-- recreate this table at the new dim. Gemini ↔ stub does NOT need a
+-- reset since both share 768d.
 -- =========================================================================
 
 CREATE TABLE IF NOT EXISTS embeddings (
@@ -167,7 +175,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     entity_type  TEXT NOT NULL,                 -- 'task' | 'failure' | 'fix' | 'run_summary'
     entity_id    TEXT NOT NULL,                 -- e.g. run_id, FailureCase.run_id, GraphNode.id
     text         TEXT NOT NULL,
-    vector       vector(384) NOT NULL,
+    vector       vector(768) NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (entity_type, entity_id)
 );

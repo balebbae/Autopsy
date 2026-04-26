@@ -57,9 +57,9 @@ elif [ -d "service/.venv" ] && service/.venv/bin/python -c 'import sentence_tran
 fi
 log "embedding provider: $PROVIDER"
 case "$PROVIDER" in
-  gemini) okay "GEMINI_API_KEY present — using Google text-embedding-004 (768-d, free tier)" ;;
-  openai) okay "OPENAI_API_KEY present — using hosted OpenAI embeddings" ;;
-  local)  okay "sentence-transformers installed — using local embeddings" ;;
+  gemini) okay "GEMINI_API_KEY present — using Google gemini-embedding-001 truncated to 768d (free tier)" ;;
+  openai) okay "OPENAI_API_KEY present — using hosted OpenAI embeddings (1536d, requires embed-reset)" ;;
+  local)  okay "sentence-transformers installed — using local embeddings (384d, requires embed-reset)" ;;
   stub)
     warn "no GEMINI_API_KEY and no OPENAI_API_KEY and no sentence-transformers — falling back to deterministic stub."
     warn "preflight will only fire on byte-identical prompts. Set GEMINI_API_KEY in .env to upgrade (free)."
