@@ -325,6 +325,10 @@ components:
       properties:
         run_id: { type: string, nullable: true }
         task: { type: string, description: "User prompt or task description" }
+        project:
+          type: string
+          nullable: true
+          description: "Scope retrieval to runs from this project (omit/null = match across all projects)"
         worktree: { type: string, nullable: true }
         tool: { type: string, nullable: true, description: "If asked from tool.execute.before" }
         args:

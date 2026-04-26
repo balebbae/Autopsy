@@ -68,7 +68,7 @@ async def on_run_complete(run_id: str) -> None:
                 )
                 await session.merge(row)
             try:
-                await gembed.write_for(session, failure_case=fc, run=run)
+                await gembed.write_for(session, failure_case=fc, run=run, extraction=extraction)
             except Exception:  # noqa: BLE001
                 log.exception("run %s: embedding step failed (graph still saved)", run_id)
 

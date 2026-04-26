@@ -15,6 +15,7 @@ export type EventIn = {
 export type PreflightRequest = {
   run_id?: string | null
   task: string
+  project?: string | null
   worktree?: string | null
   tool?: string | null
   args?: Record<string, unknown> | null

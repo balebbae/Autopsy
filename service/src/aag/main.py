@@ -6,12 +6,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from aag import __version__
-from aag.db import dispose
+from aag.db import dispose, verify_vector_dim
 from aag.routes import events, graph, preflight, report, runs, stream
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await verify_vector_dim()
     yield
     await dispose()
 

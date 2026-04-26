@@ -131,7 +131,7 @@ async def _cleanup(run_id: str) -> None:
     """
     sm = sessionmaker()
     async with sm() as session:
-        await session.execute(delete(Embedding).where(Embedding.entity_id == run_id))
+        await session.execute(delete(Embedding).where(Embedding.entity_id.like(f"{run_id}%")))
         await session.execute(delete(GraphNode).where(GraphNode.id == f"Run:{run_id}"))
         await session.execute(delete(Run).where(Run.run_id == run_id))
         await session.commit()
