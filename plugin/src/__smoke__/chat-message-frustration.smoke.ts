@@ -151,6 +151,38 @@ assert(
   `expected shared dedup to block rejection; got ${rejShared.length}`,
 )
 
+// ── Test 6: subtle frustration ("wasnt great … try again") triggers rejection ──
+
+resetState()
+await onChatMessage(
+  { sessionID: "run-subtle" },
+  { parts: makeParts("that wasnt great can you try again make sure eveything works") },
+  ctx,
+)
+const rejSubtle = fetchCalls.filter((c) => c.url.includes("/rejections"))
+assert(rejSubtle.length === 1, `expected 1 rejection for subtle frustration, got ${rejSubtle.length}`)
+const rejSubtleBody = rejSubtle[0]!.body as Record<string, unknown>
+assert(
+  rejSubtleBody.failure_mode === "frustrated_user",
+  `expected failure_mode=frustrated_user for subtle frustration, got ${rejSubtleBody.failure_mode}`,
+)
+
+// ── Test 7: other subtle patterns also match ──────────────────────
+
+const subtlePatterns = [
+  "not good",
+  "still broken",
+  "do it again",
+  "disappointed with the result",
+  "wasn't what i asked",
+]
+for (const pattern of subtlePatterns) {
+  assert(
+    /\b(wasn'?t\s+(great|good|right|correct|helpful|what\s+i)|not\s+(great|good|helpful|impressed|happy|satisfied)|try\s+again|do\s+(it|this|that)\s+(again|over)|disappointed|still\s+(wrong|broken|bad|not))\b/i.test(pattern),
+    `expected subtle pattern to match: "${pattern}"`,
+  )
+}
+
 // ── Cleanup ────────────────────────────────────────────────────────
 globalThis.fetch = origFetch
 console.log("ok")
