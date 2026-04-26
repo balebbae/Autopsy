@@ -8,6 +8,7 @@ import {
   buildRejectionReason,
   cancelPostflight,
   getPostflightChecks,
+  resolvePostflightBaseCwd,
   runPostflight,
   schedulePostflight,
   setPostflightChecks,
@@ -317,6 +318,161 @@ async function testDisabledFlag() {
   cfgMod.config.postflight.disabled = false
 }
 
+async function testRepeatedFailureDedup() {
+  _resetPostflight()
+  captured.length = 0
+  // Two checks; one always fails with the same error. We expect the FIRST
+  // run to file a rejection, and the SECOND identical run to suppress it
+  // (still emit the timeline event with `repeated: true`).
+  setPostflightChecks([
+    { name: "stable", cmd: "stable-cmd" },
+    { name: "broken", cmd: "broken-cmd" },
+  ])
+  bindPostflight({
+    $: makeFakeShell({
+      "stable-cmd": { exitCode: 0, stdout: "ok" },
+      "broken-cmd": { exitCode: 1, stderr: "still broken on the same line" },
+    }),
+  })
+
+  await runPostflight("session-repeat")
+  await runPostflight("session-repeat")
+  await runPostflight("session-repeat")
+
+  const rejectionCalls = captured.filter((c) => c.url.includes("/rejections"))
+  assert(
+    rejectionCalls.length === 1,
+    `expected ONE rejection POST across three identical runs (dedup); saw ${rejectionCalls.length}`,
+  )
+
+  const completed = captured
+    .filter((c) => c.url.endsWith("/v1/events"))
+    .flatMap((c) => (Array.isArray(c.body?.events) ? c.body.events : [c.body]))
+    .filter((e: any) => e?.type === "aag.postflight.completed")
+  assert(completed.length === 3, `expected three completed events, got ${completed.length}`)
+  assert(
+    completed[0]!.properties.repeated === false,
+    `first completed event should NOT be marked repeated`,
+  )
+  assert(
+    completed[1]!.properties.repeated === true,
+    `second completed event SHOULD be marked repeated`,
+  )
+  assert(
+    completed[2]!.properties.repeated === true,
+    `third completed event SHOULD be marked repeated`,
+  )
+}
+
+async function testNewFailureClearsDedup() {
+  _resetPostflight()
+  captured.length = 0
+  setPostflightChecks([{ name: "flaky", cmd: "flaky-cmd" }])
+  // First run: fails with error A. Second: fails with DIFFERENT error B.
+  // Third: passes. Fourth: fails with B again. We expect a rejection POST
+  // for runs 1, 2, and 4 — but NOT 3 (passed) and NOT a dup of run 4.
+  let invocation = 0
+  const $ = makeFakeShell({})
+  // Override the template handler to vary output by invocation count.
+  const orig$ = (
+    strings: TemplateStringsArray,
+    ...exprs: any[]
+  ) => orig$ // unused
+  ;(globalThis as any).__phase = ""
+  const fake: any = (strings: TemplateStringsArray, ...exprs: any[]) => {
+    invocation++
+    const phase = (globalThis as any).__phase
+    const result =
+      phase === "A"
+        ? { exitCode: 1, stdout: "", stderr: "ERROR A" }
+        : phase === "B"
+          ? { exitCode: 1, stdout: "", stderr: "ERROR B (different)" }
+          : { exitCode: 0, stdout: "ok", stderr: "" }
+    const promise: any = Promise.resolve({
+      exitCode: result.exitCode,
+      stdout: { toString: () => result.stdout },
+      stderr: { toString: () => result.stderr },
+    })
+    promise.cwd = () => promise
+    promise.nothrow = () => promise
+    promise.quiet = () => promise
+    return promise
+  }
+  fake.cwd = () => fake
+  fake.nothrow = () => fake
+  fake.throws = () => fake
+  fake.env = () => fake
+  bindPostflight({ $: fake })
+
+  ;(globalThis as any).__phase = "A"
+  await runPostflight("session-new-fail")
+  ;(globalThis as any).__phase = "B"
+  await runPostflight("session-new-fail")
+  ;(globalThis as any).__phase = "PASS"
+  await runPostflight("session-new-fail")
+  ;(globalThis as any).__phase = "B"
+  await runPostflight("session-new-fail")
+
+  const rejectionCalls = captured.filter((c) => c.url.includes("/rejections"))
+  assert(
+    rejectionCalls.length === 3,
+    `expected three rejections (A, B, then B-after-pass); saw ${rejectionCalls.length}`,
+  )
+}
+
+async function testCwdValidation() {
+  _resetPostflight()
+  captured.length = 0
+  // Use a non-default suite that points at a cwd that definitely doesn't exist.
+  setPostflightChecks([
+    { name: "bogus", cmd: "echo never-runs", cwd: "no/such/subdir" },
+  ])
+  bindPostflight({
+    $: makeFakeShell({
+      // The fake shell would happily echo, but the validator should bail
+      // before we even hit it.
+      "echo never-runs": { exitCode: 0, stdout: "should-not-see-this" },
+    }),
+    cwd: "/tmp/postflight-cwd-validation-base-does-not-exist-either",
+  })
+  const results = await runPostflight("session-bad-cwd")
+  assert(results.length === 1, `expected one result, got ${results.length}`)
+  const r = results[0]!
+  assert(r.passed === false, "bad cwd should mark check as failed")
+  assert(
+    r.stderrTail.includes("postflight: cwd does not exist"),
+    `stderr should call out the cwd issue; got: ${r.stderrTail}`,
+  )
+  // Custom suite pointing at no-such-dir should still file a rejection
+  // (the user wants to know their config is broken).
+  const rejectionCalls = captured.filter((c) => c.url.includes("/rejections"))
+  assert(
+    rejectionCalls.length === 1,
+    `expected one rejection POST for the bad-cwd run; saw ${rejectionCalls.length}`,
+  )
+}
+
+async function testResolveBaseCwdFallsBackToRepoRoot() {
+  _resetPostflight()
+  // Bind WITHOUT a cwd so the resolver has to fall back to walking up
+  // from the plugin source file. If this test is being run from inside
+  // the autopsy checkout (which is the only way `bun src/__smoke__/...`
+  // works), the resolver should find the repo root.
+  bindPostflight({ $: makeFakeShell({}) })
+  const root = resolvePostflightBaseCwd()
+  assert(typeof root === "string", `resolver returned ${root}, expected a path`)
+  // Sanity: the resolved root should contain a Makefile.
+  const fs = await import("node:fs")
+  assert(
+    fs.existsSync(`${root}/Makefile`),
+    `resolved root ${root} has no Makefile — wrong location?`,
+  )
+  assert(
+    fs.statSync(`${root}/plugin`).isDirectory(),
+    `resolved root ${root} has no plugin/ subdir — wrong location?`,
+  )
+}
+
 async function testRejectionReasonFormatting() {
   const failed: CheckResult[] = [
     {
@@ -362,6 +518,10 @@ async function main() {
     await testSchedulerDebounce()
     await testCancelPostflight()
     await testDisabledFlag()
+    await testRepeatedFailureDedup()
+    await testNewFailureClearsDedup()
+    await testCwdValidation()
+    await testResolveBaseCwdFallsBackToRepoRoot()
     await testRejectionReasonFormatting()
     console.log("ok")
   } catch (err) {

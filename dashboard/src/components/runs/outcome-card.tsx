@@ -5,6 +5,7 @@ import {
   CircleSlash,
   Loader2,
   MessageSquareWarning,
+  RotateCcw,
   Wand2,
 } from "lucide-react"
 
@@ -14,9 +15,91 @@ import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { humanizeFailureMode } from "@/lib/labels"
 
+// Adjacent rejections that share the same `failure_mode` + `symptoms` are
+// almost always the same root cause being re-filed (e.g. an agent retrying
+// a failing edit, our automated post-flight checks failing on every save,
+// or opencode replaying the same `permission.replied=reject` event). The
+// raw count (18 rejections, all "automated_check_failed") is technically
+// correct but useless for triage — collapse them so users see the LATEST
+// reason once with a "× N retries" badge instead of 18 stacked copies.
+type RejectionGroup = {
+  // The most recent rejection in the group; its reason / timestamp /
+  // failure_mode are what we surface in the consolidated row.
+  latest: Rejection
+  // Earliest timestamp in the run, for the "first seen" tooltip.
+  firstTs: number
+  // How many adjacent rejections collapsed into this group (≥1).
+  count: number
+  // Stable id for React's `key` prop — uses the latest rejection's id.
+  id: number
+}
+
+function groupRejections(rejections: Rejection[]): RejectionGroup[] {
+  const groups: RejectionGroup[] = []
+  for (const r of rejections) {
+    const tail = groups[groups.length - 1]
+    const sameAsTail =
+      tail !== undefined &&
+      tail.latest.failure_mode === r.failure_mode &&
+      tail.latest.symptoms === r.symptoms
+    if (sameAsTail) {
+      tail.count += 1
+      // Keep the LATEST as the visible reason — it carries the freshest
+      // error tail and timestamp, which is what the user actually wants
+      // to read first.
+      tail.latest = r
+      tail.id = r.id
+      continue
+    }
+    groups.push({ latest: r, firstTs: r.ts, count: 1, id: r.id })
+  }
+  return groups
+}
+
+// "Recovering after X failures" undersells what's happening when the same
+// failure has been refiled 18 times in a row. Choose the phrasing based
+// on the relationship between the raw count and the distinct-group count.
+function recoveringMessage(rawCount: number, distinctCount: number): string {
+  if (rawCount === distinctCount) {
+    // Each rejection has a different failure_mode/symptoms — show the raw
+    // count, since that IS the number of distinct issues to recover from.
+    const noun = rawCount === 1 ? "failure" : "failures"
+    return `Recovering after ${rawCount} ${noun} filed in this thread.`
+  }
+  if (distinctCount === 1) {
+    // 18 rejections all stem from the same root cause: don't claim there
+    // are 18 things to fix — there's one, retried 18 times.
+    return `Recovering: same failure refiled ${rawCount} times in this thread.`
+  }
+  // Mixed: some duplicates, some fresh. Surface both numbers so users
+  // know how many things actually need fixing vs how much retry noise
+  // happened underneath.
+  const noun = distinctCount === 1 ? "issue" : "issues"
+  return `Recovering after ${distinctCount} distinct ${noun} (${rawCount} retries) filed in this thread.`
+}
+
+// Same logic as `recoveringMessage`, but past-tense for the "approved"
+// outcome card. We deliberately keep the phrasing distinct so users can
+// tell at a glance whether the run is still in flight or already finished.
+function approvedRecoveryMessage(rawCount: number, distinctCount: number): string {
+  if (rawCount === distinctCount) {
+    const noun = rawCount === 1 ? "rejection" : "rejections"
+    return `Approved after recovering from ${rawCount} earlier ${noun}.`
+  }
+  if (distinctCount === 1) {
+    return `Approved after recovering from a single failure refiled ${rawCount} times.`
+  }
+  const noun = distinctCount === 1 ? "issue" : "issues"
+  return `Approved after recovering from ${distinctCount} distinct ${noun} (${rawCount} retries).`
+}
+
 export function OutcomeCard({ run }: { run: Run }) {
   const rejections = run.rejections ?? []
   const count = rejections.length || run.rejection_count || 0
+  const distinctCount = React.useMemo(
+    () => groupRejections(rejections).length,
+    [rejections],
+  )
   const failure = run.failure_case ?? null
   // "Has rejection signal but no analyzer output yet" — show a small
   // pill so users know we're still classifying.
@@ -35,7 +118,7 @@ export function OutcomeCard({ run }: { run: Run }) {
         </div>
         <p className="text-xs text-muted-foreground">
           {count > 0
-            ? `Recovering after ${count} ${count === 1 ? "failure" : "failures"} filed in this thread.`
+            ? recoveringMessage(count, distinctCount)
             : "Events streaming live."}
         </p>
         {rejections.length > 0 ? <RejectionList rejections={rejections} /> : null}
@@ -86,7 +169,7 @@ export function OutcomeCard({ run }: { run: Run }) {
         {rejections.length > 0 ? (
           <>
             <p className="text-xs text-muted-foreground">
-              Approved after recovering from {count} earlier rejection{count === 1 ? "" : "s"}.
+              {approvedRecoveryMessage(count, distinctCount)}
             </p>
             <RejectionList rejections={rejections} />
           </>
@@ -215,27 +298,45 @@ function RejectionBadge({ count, tone }: { count: number; tone: Tone }) {
 }
 
 function RejectionList({ rejections }: { rejections: Rejection[] }) {
+  const groups = React.useMemo(() => groupRejections(rejections), [rejections])
   return (
     <ol className="space-y-2 border-t border-border/50 pt-3">
-      {rejections.map((r, idx) => (
-        <li key={r.id} className="text-xs">
-          <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-medium">
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/15 px-1 text-[10px] tabular-nums">
-              {idx + 1}
-            </span>
-            <span className="text-foreground/80" title={r.failure_mode ?? undefined}>
-              {r.failure_mode ? humanizeFailureMode(r.failure_mode) : "Rejection"}
-            </span>
-            <span className="text-muted-foreground tabular-nums ml-auto">
-              {new Date(r.ts).toLocaleTimeString()}
-            </span>
-          </div>
-          <p className="mt-1 text-foreground/90 leading-snug">{r.reason}</p>
-          {r.symptoms ? (
-            <p className="mt-1 font-mono text-[11px] text-muted-foreground">{r.symptoms}</p>
-          ) : null}
-        </li>
-      ))}
+      {groups.map((g, idx) => {
+        const r = g.latest
+        const grouped = g.count > 1
+        const firstSeen = new Date(g.firstTs).toLocaleTimeString()
+        const lastSeen = new Date(r.ts).toLocaleTimeString()
+        return (
+          <li key={g.id} className="text-xs">
+            <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-medium">
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/15 px-1 text-[10px] tabular-nums">
+                {idx + 1}
+              </span>
+              <span className="text-foreground/80" title={r.failure_mode ?? undefined}>
+                {r.failure_mode ? humanizeFailureMode(r.failure_mode) : "Rejection"}
+              </span>
+              {grouped ? (
+                <span
+                  className="inline-flex items-center gap-0.5 rounded-full border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:text-red-300 tabular-nums"
+                  title={`Same failure refiled ${g.count} times — first at ${firstSeen}, latest at ${lastSeen}`}
+                >
+                  <RotateCcw className="h-2.5 w-2.5" />×{g.count}
+                </span>
+              ) : null}
+              <span
+                className="text-muted-foreground tabular-nums ml-auto"
+                title={grouped ? `first at ${firstSeen}` : undefined}
+              >
+                {lastSeen}
+              </span>
+            </div>
+            <p className="mt-1 text-foreground/90 leading-snug">{r.reason}</p>
+            {r.symptoms ? (
+              <p className="mt-1 font-mono text-[11px] text-muted-foreground">{r.symptoms}</p>
+            ) : null}
+          </li>
+        )
+      })}
     </ol>
   )
 }
