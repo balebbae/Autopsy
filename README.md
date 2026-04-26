@@ -89,58 +89,31 @@ Don't start coding before these four files are agreed on:
 
 See `docs/ownership.md` for who owns which directory.
 
-## What's left to build
+## Status
 
-R1 (Plugin) and R2 (Service ingestion) are complete. R3 (Analyzer/Graph) is
-partially built — classifier and extractor are done, graph + preflight are stubs.
-R4 (Dashboard) is ~60% done.
+The four pillars (plugin, service, analyzer/graph, dashboard) are end-to-end functional. The demo loop in `docs/demo-script.md` runs cleanly against `make dev`.
 
-### R3 — Analyzer & Knowledge Graph
+### Plugin (`plugin/`)
+- opencode 1.x event/tool/permission/system handlers, batched event ingestion, preflight client.
+- `tool.execute.before` context injection (`handlers/tool-before.ts`): blocks high-confidence past-failure matches with a graph-cited rationale, emits `aag.preflight.warned` / `aag.preflight.blocked` for the dashboard. Bounded by `AAG_PREFLIGHT_TIMEOUT_MS` with fail-open.
+- Postflight code-check runner (`postflight.ts`): debounced lint/typecheck/test suite that files `automated_check_failed` rejections back into the graph.
+- Frustration detection on user chat messages, dedup'd per session.
 
-- [x] **Failure classifier** — rules-based pipeline: loads run+events+diffs, runs
-      all rules, merges symptoms, picks highest-confidence failure mode. Currently
-      heuristic/regex only — could be upgraded with a small LLM (e.g. Gemma) for
-      deeper semantic classification (understanding *why* a change is incomplete
-      rather than pattern-matching file paths and diff lines).
-- [x] **Analyzer rules** — four deterministic rules implemented:
-  - `rules/schema_change.py` — scan diffs for schema field additions
-  - `rules/missing_migration.py` — detect missing migration when schema_change fires
-  - `rules/missing_test.py` — detect code changes without corresponding test changes
-  - `rules/frontend_drift.py` — detect backend type changes without frontend regen
-- [x] **Entity extractor** — extracts files, components, tool calls, errors (stderr/exit
-      codes), and threads classifier output into a structured `Extraction` for the graph writer.
-- [x] **Finalizer wiring** — `workers/finalizer.py` chains classifier → persist FailureCase
-      on run completion. Wired into the outcome route.
-- [ ] **Graph writer orchestrator** — `upsert_node()` and `upsert_edge()` helpers exist, but no
-      top-level pipeline that ties classifier output into graph construction.
-- [ ] **Preflight traversal** — `graph/traversal.py` returns an empty response. Needs ANN vector
-      search + 2-hop CTE over graph edges.
-- [ ] **Embedding write path** — stub provider works, but `embeddings.write_for()` isn't called
-      from anywhere yet.
-- [ ] **Graph API routes** — `GET /v1/graph/nodes` and `GET /v1/graph/edges` are in the OpenAPI
-      spec but have no route handlers.
-- [ ] **Graph seeder** — `scripts/seed.py` only health-checks. Needs to create ~5 synthetic runs
-      covering distinct failure modes.
+### Service (`service/`)
+- `/v1/events`, `/v1/runs`, run diff/outcome/feedback routes, SSE re-broadcast on `/v1/runs/:id/stream`.
+- Analyzer: four deterministic rules (`schema_change`, `missing_migration`, `missing_test`, `frontend_drift`), classifier, entity extractor, finalizer pipeline wired to the outcome route.
+- Graph: `upsert_node` / `upsert_edge` primitives plus a top-level writer that consumes classifier output, vector embeddings (`embeddings.write_for`) for semantic similarity, ANN + 2-hop CTE traversal in `/v1/preflight`, and `GET /v1/graph/{nodes,edges}` for the dashboard.
+- ~5k lines of pytest covering routes, finalizer, traversal, classifier, extractor, embeddings, and a full demo-loop integration test.
 
-### R4 — Dashboard
+### Dashboard (`dashboard/`)
+- Run list + detail pages with live SSE timeline (`run-refresher.tsx`, `timeline.tsx`).
+- 3D force-graph explorer at `/graph` with filtering by FailureMode / Component / ChangePattern.
+- Per-run preflight panel showing every `/v1/preflight` hit and which were blocking.
 
-- [ ] **Graph visualization** — `/graph` page is a placeholder. Needs Cytoscape.js or react-flow
-      rendering nodes/edges with filtering by FailureMode, Component, ChangePattern.
-- [ ] **Live SSE updates** — SSE client infra exists in `src/lib/sse.ts` but isn't wired into
-      any page.
-- [ ] **Preflight warning panel** — referenced in architecture docs but not built in the dashboard.
-
-### Plugin
-
-- [x] **opencode 1.x API compatibility** — plugin reworked for opencode 1.x hook shape,
-      rejection handling piggybacks on bus events.
-- [ ] **Task enrichment** — `onToolBefore` posts an empty task string; should include the latest
-      user message from the SDK client.
-
-### Tests
-
-- [x] Classifier + extractor unit tests (25 tests covering rules, helpers, extraction).
-- [ ] Integration tests (ingestion routes, outcome → finalizer → DB pipeline).
+### Open work / nice-to-haves
+- No CI yet — running `make service-lint`, `make service-test`, `bun run typecheck`, and the smoke tests on push would catch regressions early.
+- The classifier is regex/heuristic only. An optional LLM pass for "*why* the change is incomplete" (vs. pattern-matching paths) is wired up behind `preflight_llm_enabled` for the preflight synth path but not for classification itself.
+- `AAG_PREFLIGHT_TOOLS` defaults include `bash`, which means the injection handler can hard-block bash calls. Worth a deliberate yes/no per project.
 
 ## Demo loop
 
@@ -148,5 +121,5 @@ R4 (Dashboard) is ~60% done.
 
 1. Run a "schema field addition" task in opencode → user rejects with "missed migration".
 2. Service stores the run, analyzer classifies, graph writer records the failure.
-3. Start a similar new task → preflight injects a system addendum + dashboard shows the warning panel.
+3. Start a similar new task → preflight injects a system addendum and (for high-confidence matches) blocks the offending tool call with a cited rationale; the dashboard shows the warning + blocked events on the timeline.
 4. Agent does the right thing the first time.

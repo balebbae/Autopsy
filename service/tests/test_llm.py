@@ -109,8 +109,8 @@ class TestResponseParsing:
 
     def test_json_with_thinking_preamble(self):
         text = (
-            '* Constraint 1: Only valid JSON.\n'
-            '* The object is valid.\n\n'
+            "* Constraint 1: Only valid JSON.\n"
+            "* The object is valid.\n\n"
             '{"failure_mode": "ui_bug", "summary": "test", "confidence": 0.8}'
         )
         result = _parse_response(text)
@@ -119,7 +119,7 @@ class TestResponseParsing:
 
     def test_json_buried_in_reasoning(self):
         text = (
-            'Let me analyze this.\n\n'
+            "Let me analyze this.\n\n"
             '`{"failure_mode": "test"}`\n'
             '{"failure_mode": "real_answer", "summary": "found it", "confidence": 0.9}'
         )
