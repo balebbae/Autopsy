@@ -576,9 +576,7 @@ async def test_preflight_persists_hit_when_run_id_set() -> None:
         async with sm() as session:
             rows = list(
                 (
-                    await session.execute(
-                        select(PreflightHit).where(PreflightHit.run_id == run_id)
-                    )
+                    await session.execute(select(PreflightHit).where(PreflightHit.run_id == run_id))
                 ).scalars()
             )
         assert len(rows) == 1
