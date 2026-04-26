@@ -113,19 +113,30 @@ export function nodeDisplayName(node: GraphNode): string {
 
 export const NODE_TYPES: string[] = Object.keys(NODE_TYPE_STYLE)
 
-// Edge type styling
-export const EDGE_TYPE_STYLE: Record<string, { color: string; dashed: boolean }> = {
-  EXECUTED: { color: "#38bdf8", dashed: false },
-  EDITED: { color: "#a78bfa", dashed: false },
-  PART_OF: { color: "#94a3b8", dashed: true },
-  MATCHED: { color: "#f472b6", dashed: false },
-  EXHIBITED: { color: "#fb923c", dashed: false },
-  INDICATES: { color: "#ef4444", dashed: false },
-  FIXED_BY: { color: "#34d399", dashed: false },
-  RESULTED_IN: { color: "#64748b", dashed: false },
-  TYPE_OF: { color: "#fbbf24", dashed: true },
+// Edge type styling. Vocabulary mirrors service/src/aag/graph/writer.py —
+// keep these in sync when the writer adds or renames an edge type.
+export const EDGE_TYPE_STYLE: Record<
+  string,
+  { color: string; dashed: boolean; label: string }
+> = {
+  ATTEMPTED: { color: "#38bdf8", dashed: false, label: "attempted" },
+  TOUCHED: { color: "#a78bfa", dashed: false, label: "touched" },
+  BELONGS_TO: { color: "#94a3b8", dashed: true, label: "belongs to" },
+  HAD_CHANGE_PATTERN: { color: "#f472b6", dashed: false, label: "had change" },
+  EMITTED_SYMPTOM: { color: "#fb923c", dashed: false, label: "emitted" },
+  INDICATES: { color: "#ef4444", dashed: false, label: "indicates" },
+  RESOLVED_BY: { color: "#34d399", dashed: false, label: "resolved by" },
+  RESULTED_IN: { color: "#64748b", dashed: false, label: "resulted in" },
 }
 
+export const EDGE_TYPES: string[] = Object.keys(EDGE_TYPE_STYLE)
+
 export function edgeStyle(type: string) {
-  return EDGE_TYPE_STYLE[type] ?? { color: "#475569", dashed: false }
+  return (
+    EDGE_TYPE_STYLE[type] ?? {
+      color: "#475569",
+      dashed: false,
+      label: type.toLowerCase().replace(/_/g, " "),
+    }
+  )
 }
