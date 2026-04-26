@@ -31,7 +31,23 @@ warn() { printf '%swarning:%s %s\n' "$WARN" "$RESET" "$*" >&2; }
 fail() { printf '%serror:%s %s\n' "$ERR" "$RESET" "$*" >&2; exit 1; }
 
 print_help() {
-  sed -n '1,16s/^# \{0,1\}//p' "$0" 2>/dev/null || sed -n '2,16p' "$0"
+  cat <<'HELP'
+Install Autopsy. By default brings up the full local stack
+(postgres + service + dashboard) and installs the opencode plugin into
+the current project. Re-run any time to update.
+
+Usage (from your project root):
+  curl -fsSL https://install.autopsy.surf/install.sh | bash
+  curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --plugin-only
+  curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-start
+
+Flags:
+  --plugin-only   Skip the local stack, install only the plugin (point
+                  AAG_URL at an existing Autopsy service).
+  --no-start      Set up everything but do not start the service or dashboard.
+                  Postgres still comes up.
+  --help, -h      Print this message.
+HELP
 }
 
 # ---- args ----------------------------------------------------------------
