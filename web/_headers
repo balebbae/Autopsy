@@ -1,0 +1,7 @@
+/install.sh
+  Content-Type: text/x-shellscript; charset=utf-8
+  Cache-Control: public, max-age=300, must-revalidate
+
+/favicon.svg
+  Content-Type: image/svg+xml
+  Cache-Control: public, max-age=86400

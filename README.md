@@ -46,7 +46,7 @@ sessions; `make compose-down` stops it.
 From **your project's root** (not the Autopsy repo), run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/balebbae/Autopsy/main/scripts/init.sh | bash
+curl -fsSL https://install.autopsy.surf/install.sh | bash
 ```
 
 This downloads the plugin source, bundles it, and places it at
