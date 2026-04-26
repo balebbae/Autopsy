@@ -167,10 +167,13 @@ header.nav{
 
 /* ---------- hero ---------- */
 .hero{
+  /* hero box sits below the 64px nav. Asymmetric padding (extra at the
+     bottom) makes the flex-centered content land at exactly 50vh of the
+     viewport, instead of 32px below it. */
   min-height:calc(100vh - 64px);
+  padding:0 0 64px;
   display:flex;
   align-items:center;
-  padding:48px 0;
   text-align:center;
 }
 .hero > .container{width:100%}
@@ -187,7 +190,7 @@ header.nav{
   letter-spacing:.18em;
   text-transform:uppercase;
   color:var(--muted-strong);
-  margin-bottom:36px;
+  margin-bottom:24px;
 }
 .eyebrow .dot{
   width:6px;height:6px;border-radius:50%;
@@ -195,9 +198,9 @@ header.nav{
   box-shadow:0 0 10px var(--approve);
 }
 .hero-mark{
-  width:160px;
-  height:160px;
-  margin:0 auto 32px;
+  width:140px;
+  height:140px;
+  margin:0 auto 24px;
   position:relative;
 }
 .hero-mark::before{
@@ -216,21 +219,21 @@ header.nav{
 }
 .hero-mark .pulse{stroke:var(--primary)}
 .hero h1{
-  font-size:clamp(56px, 9vw, 112px);
+  font-size:clamp(52px, 8.4vw, 104px);
   font-weight:800;
   letter-spacing:-0.045em;
   line-height:0.95;
-  margin:0 0 18px;
+  margin:0 0 16px;
   background:linear-gradient(180deg,#ffffff 0%, #c8cdde 100%);
   -webkit-background-clip:text;
   background-clip:text;
   color:transparent;
 }
 .hero-tagline{
-  font-size:clamp(18px, 2.2vw, 24px);
+  font-size:clamp(18px, 2.1vw, 23px);
   color:var(--muted-strong);
   max-width:680px;
-  margin:0 auto 20px;
+  margin:0 auto 16px;
   font-weight:400;
 }
 .hero-tagline em{
@@ -242,7 +245,7 @@ header.nav{
   font-size:15px;
   color:var(--muted);
   max-width:640px;
-  margin:0 auto 40px;
+  margin:0 auto 28px;
 }
 .hero-cta{
   display:flex;
@@ -250,7 +253,6 @@ header.nav{
   justify-content:center;
   gap:14px;
   flex-wrap:wrap;
-  margin-bottom:24px;
 }
 .btn{
   display:inline-flex;
@@ -716,13 +718,13 @@ footer{
       </div>
 
       <div class="feature">
-        <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/><path d="M9 12l2 2 4-4"/></svg>
+        <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L4 6 v6.5 c0 4.7 3.4 8.7 8 9.5 c4.6-.8 8-4.8 8-9.5 V6 L12 3 z"/><path d="M12 9 v4.5"/><circle cx="12" cy="16.5" r=".6" fill="currentColor" stroke="none"/></svg>
         <h3>Preflight injection</h3>
         <p>On every chat turn, Autopsy retrieves similar past failures and injects a warning into the system prompt. On every tool call, it can block the call if the risk crosses a threshold.</p>
       </div>
 
       <div class="feature">
-        <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-2-2-4 4 6 6 12-12-4-4-2 2"/><path d="M5 19l-2 2"/></svg>
+        <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4 V3 a1 1 0 0 1 1 -1 h4 a1 1 0 0 1 1 1 v1 z"/><path d="M9 13 l2 2 l4 -4"/></svg>
         <h3>Postflight checks</h3>
         <p>After every code-mod tool, Autopsy automatically runs lint, typecheck, and tests. Failures are folded back into the graph as a real rejection so the next run gets warned.</p>
       </div>
