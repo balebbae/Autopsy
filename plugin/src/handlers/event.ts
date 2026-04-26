@@ -1,6 +1,7 @@
 import { enqueue, flush } from "../batcher.ts"
 import { postFeedback, postOutcome, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
+import { schedulePostflight } from "../postflight.ts"
 import type { EventIn } from "../types.ts"
 import { FRUSTRATION_RE, firedSessions, markSessionFired } from "./frustration.ts"
 
@@ -242,6 +243,11 @@ export const onEvent = async (
   // emitted. Fire-and-forget; never blocks event delivery.
   if (e.type === "session.idle") {
     void refreshSessionTitle(runId, ctx.client, ctx)
+    // Run post-flight checks only once the agent goes idle. This avoids
+    // flagging intermediary edit states as failures while the model is still
+    // actively working through a patch sequence. Use immediate scheduling so
+    // failures are attributed to the just-finished turn before next input.
+    schedulePostflight(runId, { immediate: true })
   }
 
   if (e.type === "permission.replied" && props.reply === "reject") {

@@ -192,12 +192,35 @@ export function _resetPostflight(): void {
   bound = undefined
   cachedRepoRoot = undefined
   lastFailureSignature.clear()
+  dirtySessions.clear()
+  triggeredAtMap.clear()
   for (const t of timers.values()) clearTimeout(t)
   timers.clear()
   inflight.clear()
 }
 
 // --- scheduler ------------------------------------------------------------
+
+// Sessions with at least one code-modifying tool call since the last
+// postflight run attempt. We only run checks for dirty sessions, and only
+// when the session goes idle (see handlers/event.ts).
+const dirtySessions = new Set<string>()
+
+export function markPostflightDirty(runId: string): void {
+  if (!runId) return
+  dirtySessions.add(runId)
+}
+
+type ScheduleOptions = {
+  // Run as soon as possible (next tick) instead of waiting for debounceMs.
+  // Used on session.idle to bind checks to the just-finished turn.
+  immediate?: boolean
+}
+
+// Per-session timestamp of when idle fired. Threaded into runPostflight so
+// rejection payloads and timeline events carry the turn-boundary time, not
+// the (much later) check-completion time.
+const triggeredAtMap = new Map<string, number>()
 
 // Per-session debounce: any call to `schedulePostflight(runId)` resets the
 // timer. When the timer finally fires (i.e. no new edit for debounceMs),
@@ -209,13 +232,21 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 // trigger that races past the debounce window doesn't spawn a duplicate.
 const inflight = new Set<string>()
 
-export function schedulePostflight(runId: string): void {
+export function schedulePostflight(runId: string, opts?: ScheduleOptions): void {
   if (!runId) return
   if (config.postflight.disabled) return
   if (!bound || !bound.$) return
+  if (!dirtySessions.has(runId)) return
+
+  // Capture the wall-clock time of the trigger (session.idle) so that
+  // downstream rejection payloads and timeline events are anchored to
+  // the turn boundary, not whenever the async checks finish.
+  triggeredAtMap.set(runId, Date.now())
 
   const existing = timers.get(runId)
   if (existing) clearTimeout(existing)
+
+  const delayMs = opts?.immediate ? 0 : config.postflight.debounceMs
 
   const t = setTimeout(() => {
     timers.delete(runId)
@@ -224,7 +255,7 @@ export function schedulePostflight(runId: string): void {
       // just belt-and-braces for the unhandled-rejection case.
       console.error(`[autopsy] postflight unexpected failure for ${runId}:`, err)
     })
-  }, config.postflight.debounceMs)
+  }, delayMs)
 
   timers.set(runId, t)
 
@@ -414,8 +445,19 @@ export function buildRejectionReason(failed: CheckResult[]): string {
 export async function runPostflight(runId: string): Promise<CheckResult[]> {
   if (!bound || !bound.$) return []
   if (!runId) return []
+  if (!dirtySessions.has(runId)) return []
   if (inflight.has(runId)) return []
   inflight.add(runId)
+
+  // Consume the dirty marker for this attempt. If additional edits happen
+  // while checks are running, tool-after will mark dirty again and the next
+  // session.idle will schedule another run.
+  dirtySessions.delete(runId)
+
+  // Snapshot and consume the trigger timestamp so the rejection and
+  // timeline events are anchored to when the turn ended.
+  const triggeredAt = triggeredAtMap.get(runId) ?? Date.now()
+  triggeredAtMap.delete(runId)
 
   try {
     const checks = getPostflightChecks()
@@ -423,15 +465,15 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
 
     const baseCwd = resolvePostflightBaseCwd() ?? undefined
 
-    const ts = Date.now()
     enqueue({
       run_id: runId,
       project: bound.projectId,
       worktree: bound.worktree,
-      ts,
+      ts: triggeredAt,
       type: "aag.postflight.started",
       properties: {
         sessionID: runId,
+        triggeredAt,
         baseCwd: baseCwd ?? null,
         checks: checks.map((c) => ({ name: c.name, cmd: c.cmd, cwd: c.cwd ?? null })),
       },
@@ -462,10 +504,12 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
       run_id: runId,
       project: bound.projectId,
       worktree: bound.worktree,
-      ts: Date.now(),
+      ts: triggeredAt,
       type: "aag.postflight.completed",
       properties: {
         sessionID: runId,
+        triggeredAt,
+        completedAt: Date.now(),
         passed: failed.length === 0,
         // `repeated: true` means the SAME set of checks failed with the
         // same exit codes and (truncated) error tail as the previous
@@ -510,6 +554,7 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
       reason,
       failure_mode: "automated_check_failed",
       symptoms,
+      ts: triggeredAt,
     })
     // Mirror the reason onto the run's rejection_reason column so the
     // dashboard's run summary surfaces the latest check failure even if
