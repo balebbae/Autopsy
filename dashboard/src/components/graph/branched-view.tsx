@@ -26,19 +26,10 @@ export function BranchedView({ run }: Props) {
     900,
   )
 
+  // Run identity is announced by the run picker in the toolbar — keep this
+  // chrome minimal so the SVG canvas dominates.
   return (
-    <div className="flex h-full w-full flex-col gap-3 overflow-hidden p-4">
-      <header className="px-2">
-        <h2 className="text-sm font-semibold tracking-tight">
-          Branched · run {run.run_id.slice(0, 8)}
-          {run.task ? <span className="text-muted-foreground"> — {run.task}</span> : null}
-        </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Spine = user messages, left → right. Attempts branch downward; rejections
-          terminate at ✕, approvals merge back into the spine.
-        </p>
-      </header>
-
+    <div className="flex h-full w-full flex-col gap-2 overflow-hidden p-3">
       <Legend />
 
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-xl border border-border bg-card/40 p-4">
@@ -114,10 +105,12 @@ function BranchedStep({
   cx: number
   nextCx: number
 }) {
+  // Mirror timeline-view: when the run has no captured user message, fall
+  // back to the task itself rather than stamping `Task: <task>` — the literal
+  // prefix repeats verbatim across columns and reads as boilerplate.
   const userText =
-    attempt.userMessage?.text ??
-    (taskFallback ? `Task: ${taskFallback}` : "Run started")
-  const truncated = truncate(userText, 38)
+    attempt.userMessage?.text ?? taskFallback ?? "Run started"
+  const truncated = truncate(userText, 32)
   const blocked = attemptHadPreflightBlock(attempt)
   const hit = topPreflightHit(attempt)
   const o = attempt.outcome
