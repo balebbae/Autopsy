@@ -3,7 +3,6 @@
 import * as React from "react"
 import useSWR from "swr"
 import { useRouter, useSearchParams } from "next/navigation"
-import { toast } from "sonner"
 import {
   Activity,
   GitBranch,
@@ -39,7 +38,6 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/primitives/empty-state"
 import { NodeDrawer } from "./node-drawer"
-import { EdgeCreateModal } from "./edge-create-modal"
 import { Legend } from "./legend"
 import { MiniMap } from "./mini-map"
 import {
@@ -252,12 +250,6 @@ export function GraphExplorer() {
   const [selectedId, setSelectedId] = React.useState<string>("")
   const [hoveredId, setHoveredId] = React.useState<string>("")
   const [filtersInitialized, setFiltersInitialized] = React.useState(false)
-  
-  // Edge creation mode
-  const [edgeCreateMode, setEdgeCreateMode] = React.useState(false)
-  const [edgeSourceId, setEdgeSourceId] = React.useState<string | null>(null)
-  const [edgeTargetId, setEdgeTargetId] = React.useState<string | null>(null)
-  const [showEdgeModal, setShowEdgeModal] = React.useState(false)
 
   const allNodeTypes = React.useMemo(
     () => Array.from(new Set((payload?.nodes ?? []).map((n) => n.type))).sort(),
@@ -299,44 +291,7 @@ export function GraphExplorer() {
     if (!fg) return
     const currentZoom = fg.zoom()
     fg.zoom(currentZoom / 1.4, 300)
-  }  // Edge creation handlers
-  const handleNodeClickForEdge = (nodeId: string) => {
-    if (!edgeCreateMode) {
-      setSelectedId(nodeId)
-      // Zoom is handled in GraphCanvas2D when selectedId changes
-      return
-    }
-    
-    if (!edgeSourceId) {
-      setEdgeSourceId(nodeId)
-      toast.info("Now click the target node")
-    } else if (nodeId !== edgeSourceId) {
-      setEdgeTargetId(nodeId)
-      setShowEdgeModal(true)
-    }
   }
-
-  const handleEdgeSubmit = (edgeType: string, confidence: number) => {
-    if (!edgeSourceId || !edgeTargetId) return
-    
-    // In a real app, this would call an API to create the edge
-    // For now, just show a success message
-    toast.success(`Connection created: ${edgeType} (${Math.round(confidence * 100)}%)`)
-    
-    // Reset edge creation state
-    setEdgeSourceId(null)
-    setEdgeTargetId(null)
-    setEdgeCreateMode(false)
-    setShowEdgeModal(false)
-  }
-
-  const cancelEdgeCreate = () => {
-    setEdgeCreateMode(false)
-    setEdgeSourceId(null)
-    setEdgeTargetId(null)
-    setShowEdgeModal(false)
-  }
-
   // Keyboard shortcuts
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -360,17 +315,13 @@ export function GraphExplorer() {
           }
           break
         case "Escape":
-          if (edgeCreateMode) {
-            cancelEdgeCreate()
-          } else {
-            setSelectedId("")
-          }
+          setSelectedId("")
           break
       }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [edgeCreateMode])
+  }, [])
 
   if (isLoading && !payload) {
     return <FullCanvasSkeleton />
@@ -623,24 +574,11 @@ export function GraphExplorer() {
               search={search}
               visibleNodeTypes={visibleNodeTypes}
               visibleEdgeTypes={visibleEdgeTypes}
-              selectedId={edgeCreateMode ? edgeSourceId || "" : selectedId}
+              selectedId={selectedId}
               hoveredId={hoveredId}
-              onSelectNode={handleNodeClickForEdge}
+              onSelectNode={(id) => setSelectedId(id)}
               onHoverNode={(id) => setHoveredId(id)}
             />
-            {/* Edge creation mode indicator */}
-            {edgeCreateMode && (
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
-                <Card className="px-4 py-2 bg-primary text-primary-foreground shadow-lg">
-                  <p className="text-sm font-medium">
-                    {edgeSourceId 
-                      ? `Source: ${nodesById.get(edgeSourceId)?.name || edgeSourceId} → Click target node`
-                      : "Click a source node to start connection"
-                    }
-                  </p>
-                </Card>
-              </div>
-            )}
             {/* Mini-map */}
             <div className="absolute bottom-4 right-4 z-10">
               <MiniMap fgRef={fgRef} positionedNodesRef={positionedNodesRef} />
@@ -661,16 +599,6 @@ export function GraphExplorer() {
         onSelectNode={(n) => setSelectedId(n.id)}
       />
 
-      <EdgeCreateModal
-        open={showEdgeModal}
-        onClose={() => {
-          setShowEdgeModal(false)
-          setEdgeTargetId(null)
-        }}
-        sourceNode={edgeSourceId ? nodesById.get(edgeSourceId) || null : null}
-        targetNode={edgeTargetId ? nodesById.get(edgeTargetId) || null : null}
-        onSubmit={handleEdgeSubmit}
-      />
     </div>
   )
 }
