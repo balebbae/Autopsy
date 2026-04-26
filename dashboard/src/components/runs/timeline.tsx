@@ -455,7 +455,10 @@ function summariseEvent(e: Mergeable): string | null {
     }
     case "aag.preflight.blocked": {
       const tool = p.tool as string | undefined
-      const reason = p.rationale as string | undefined
+      // Plugin emits the throw message under `reason` (see
+      // plugin/src/handlers/tool-before.ts). Older payloads used
+      // `rationale`; accept either so historical events still render.
+      const reason = (p.reason ?? p.rationale) as string | undefined
       if (reason) return truncateForRow(reason)
       return tool ? `blocked ${tool}` : "tool call blocked"
     }
