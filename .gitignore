@@ -29,3 +29,6 @@ plugin/dist/
 # Local opencode plugin symlink (points at plugin/src/index.ts on each machine)
 .opencode/plugins/autopsy.ts
 .opencode/plugins/autopsy.js
+
+# Build artifacts
+dist/
