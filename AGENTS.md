@@ -24,6 +24,7 @@ Project-specific notes for the Agent Autopsy Graph monorepo.
 - Plugin source loaded directly by opencode (Bun-based runtime); a build step is optional. For local dev the recommended path is `make plugin-link`, which symlinks the entry into `.opencode/plugins/autopsy.ts`.
 - Don't import from `@opencode-ai/plugin` runtime — only the type. The plugin gets its `client`, `$`, etc. injected by the loader.
 - The plugin must never block the LLM stream on a slow backend call. Use a fire-and-forget batcher for the `event` hook.
+- **Post-flight code checks** live in `plugin/src/postflight.ts` and run after a debounce when the agent stops editing. The default suite is hardcoded for this monorepo (`make service-lint`, `make service-test`, `bun run typecheck` in `plugin/`, `next typegen + tsc --noEmit` in `dashboard/`). Failures land as `failure_mode=automated_check_failed` rejections and feed back into the graph. Smoke test: `cd plugin && bun src/__smoke__/postflight.smoke.ts`. Knobs: `AAG_POSTFLIGHT_DISABLED`, `AAG_POSTFLIGHT_DEBOUNCE_MS`, `AAG_POSTFLIGHT_TOOLS`.
 
 ## Dashboard (Next.js)
 

@@ -15,6 +15,7 @@ import { makeRejectionTool } from "./handlers/register-rejection.ts"
 import { onSystemTransform } from "./handlers/system.ts"
 import { onToolAfter } from "./handlers/tool-after.ts"
 import { onToolBefore } from "./handlers/tool-before.ts"
+import { bindPostflight } from "./postflight.ts"
 
 const Autopsy = async (ctx: {
   project?: { id?: string }
@@ -25,12 +26,29 @@ const Autopsy = async (ctx: {
 }) => {
   // Dynamically import tool() from the opencode plugin SDK. This resolves
   // from .opencode/node_modules at runtime (opencode loads us from there).
+  // The plugin's own node_modules doesn't carry @opencode-ai/plugin (it's
+  // injected by the host), so we ts-ignore the import-resolution error.
   let rejectionTool: any = undefined
   try {
+    // @ts-ignore — resolved at runtime from opencode's node_modules.
     const { tool } = await import("@opencode-ai/plugin/tool")
     rejectionTool = makeRejectionTool(tool)
   } catch {
     // Plugin still works for event recording — just no custom tool.
+  }
+
+  // Bind the bun shell + project metadata into the postflight runner so
+  // `handlers/tool-after.ts` can schedule check runs without threading
+  // these through every event hook. Skipped when `$` is unavailable
+  // (older opencode versions or non-bun runtimes) — postflight just
+  // becomes a no-op in that case.
+  if (ctx.$) {
+    bindPostflight({
+      $: ctx.$,
+      projectId: ctx.project?.id,
+      worktree: ctx.worktree,
+      cwd: ctx.directory ?? ctx.worktree,
+    })
   }
 
   return {

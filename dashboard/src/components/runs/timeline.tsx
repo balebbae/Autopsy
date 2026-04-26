@@ -31,6 +31,8 @@ const eventLabel: Record<string, string> = {
   "permission.replied": "Permission replied",
   "message.part.updated": "Message updated",
   "chat.message": "Message",
+  "aag.postflight.started": "Post-flight checks started",
+  "aag.postflight.completed": "Post-flight checks completed",
 }
 
 export function RunTimeline({
@@ -282,6 +284,12 @@ function severityForEvent(e: Mergeable): Severity {
   ) {
     return "rejection"
   }
+  if (
+    e.type === "aag.postflight.completed" &&
+    (e.properties as { passed?: boolean } | undefined)?.passed === false
+  ) {
+    return "rejection"
+  }
   return "default"
 }
 
@@ -397,6 +405,32 @@ function summariseEvent(e: Mergeable): string | null {
     case "permission.replied": {
       const reply = p.reply as string | undefined
       return reply ? `reply: ${reply}` : null
+    }
+    case "aag.postflight.started": {
+      const checks = p.checks as Array<{ name?: string }> | undefined
+      if (!checks?.length) return null
+      const names = checks
+        .map((c) => c.name ?? "")
+        .filter(Boolean)
+        .slice(0, 4)
+        .join(", ")
+      return `${checks.length} check${checks.length === 1 ? "" : "s"}${
+        names ? ` · ${names}` : ""
+      }`
+    }
+    case "aag.postflight.completed": {
+      const results = p.results as Array<{ name?: string; passed?: boolean }> | undefined
+      if (!results?.length) return null
+      const failed = results.filter((r) => r.passed === false)
+      if (failed.length === 0) {
+        return `all ${results.length} passed`
+      }
+      const names = failed
+        .map((r) => r.name ?? "")
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(", ")
+      return `${failed.length}/${results.length} failed${names ? ` · ${names}` : ""}`
     }
     default:
       return null

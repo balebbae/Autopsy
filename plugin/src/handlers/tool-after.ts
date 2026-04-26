@@ -10,6 +10,8 @@
 // a small preview, so we trim here at capture time.
 
 import { enqueue } from "../batcher.ts"
+import { config } from "../config.ts"
+import { schedulePostflight } from "../postflight.ts"
 import type { EventIn } from "../types.ts"
 
 const PREVIEW_OK = 512
@@ -75,4 +77,12 @@ export const onToolAfter = async (
     },
   }
   enqueue(ev)
+
+  // If the tool just modified files, schedule a debounced post-flight
+  // code-check run. Only the LAST edit in a flurry actually fires the
+  // suite — the scheduler clears any pending timer on each schedule call.
+  // This is fire-and-forget; it must never block the agent.
+  if (config.postflight.triggerTools.has(input.tool)) {
+    schedulePostflight(input.sessionID)
+  }
 }

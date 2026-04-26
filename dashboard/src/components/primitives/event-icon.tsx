@@ -2,9 +2,11 @@ import * as React from "react"
 import {
   AlertTriangle,
   ArrowRight,
+  CheckCircle2,
   FileDiff,
   GitBranch,
   Hammer,
+  ListChecks,
   MessageSquare,
   Moon,
   Play,
@@ -13,6 +15,7 @@ import {
   Sparkles,
   StopCircle,
   Wrench,
+  XCircle,
   Zap,
   type LucideIcon,
 } from "lucide-react"
@@ -38,6 +41,9 @@ const map: Record<string, EventMeta> = {
   "aag.preflight.warned": { Icon: AlertTriangle, tone: "text-amber-500" },
   "aag.preflight.blocked": { Icon: StopCircle, tone: "text-red-500" },
   "aag.system.injected": { Icon: Sparkles, tone: "text-primary" },
+  "aag.postflight.started": { Icon: ListChecks, tone: "text-muted-foreground" },
+  "aag.postflight.completed": { Icon: CheckCircle2, tone: "text-emerald-500" },
+  "aag.postflight.failed": { Icon: XCircle, tone: "text-red-500" },
 }
 
 export function EventIcon({ type, className }: { type: string; className?: string }) {
