@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Activity,
+  BookOpen,
   Network,
   ShieldCheck,
 } from "lucide-react"
@@ -58,9 +59,16 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto px-5 py-4 text-[11px] leading-relaxed text-muted-foreground border-t border-border">
-        <p className="font-mono opacity-70">v0.1 · localhost:4000</p>
-        <p className="mt-1">Forensic recorder for opencode runs.</p>
+      <div className="mt-auto px-3 pb-3">
+        <a
+          href="https://autopsy.surf"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+        >
+          <BookOpen className="h-4 w-4" />
+          <span>Go to Docs</span>
+        </a>
       </div>
     </aside>
   )
