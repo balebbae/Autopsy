@@ -32,7 +32,7 @@ export function TimelineView({ run }: Props) {
 
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-xl border border-border bg-card/40">
         <div
-          className="relative flex items-start"
+          className="relative flex min-h-full items-stretch"
           style={{
             padding: "44px 32px 32px",
             gap: `${ATTEMPT_GAP}px`,
@@ -85,14 +85,14 @@ function AttemptColumn({
 
   return (
     <div
-      className="relative flex shrink-0 flex-col gap-3"
+      className="relative flex h-full shrink-0 flex-col gap-3"
       style={{ width: ATTEMPT_WIDTH }}
     >
       <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground">
         {formatTs(userTs)}
       </div>
 
-      <div className="flex flex-col items-center gap-2 px-2">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 px-2">
         <div
           className={cn(
             "h-3.5 w-3.5 rounded-full ring-4 ring-primary/20 z-10",
@@ -108,7 +108,7 @@ function AttemptColumn({
         <div
           className={cn(
             "w-full max-w-full rounded-lg border bg-card/85 px-3 py-2 text-[13px] leading-snug",
-            "max-h-32 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] scrollbar-thin",
+            "min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere] scrollbar-thin",
             frustrated ? "border-destructive/40" : "border-border",
             fallbackTask ? "italic text-muted-foreground" : "",
           )}

@@ -1,6 +1,7 @@
 import { enqueue, flush } from "../batcher.ts"
 import { postFeedback, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
+import { startNewPostflightTurn } from "../postflight.ts"
 import type { EventIn } from "../types.ts"
 import { FRUSTRATION_RE, markSessionFired } from "./frustration.ts"
 
@@ -54,6 +55,11 @@ export const onChatMessage = async (
 
   // Update preflight enrichment buffer immediately.
   setLatestUserMessage(text, runId)
+
+  // A new user message marks the start of a fresh AI turn. Reset the
+  // per-turn postflight dedup so the next `session.idle` (after the AI
+  // finishes responding) can schedule exactly one postflight run.
+  startNewPostflightTurn(runId)
 
   // Emit a synthetic event so the service can refresh runs.task.
   const taskEv: EventIn = {

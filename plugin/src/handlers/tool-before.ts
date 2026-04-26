@@ -24,6 +24,7 @@ import { enqueue } from "../batcher.ts"
 import { preflight } from "../client.ts"
 import { config } from "../config.ts"
 import { latestUserMessage } from "../last-task.ts"
+import { cancelPostflight } from "../postflight.ts"
 import type { OpencodeToastClient } from "../tui-toast.ts"
 import type { EventIn } from "../types.ts"
 
@@ -74,6 +75,14 @@ export const onToolBefore = async (
   output: { args: Record<string, unknown> },
   ctx: { project?: { id?: string }; worktree?: string; directory?: string; client?: OpencodeToastClient },
 ) => {
+  // The AI is about to run another tool — that means whatever `session.idle`
+  // we may have just seen was transient (intermediate idle in an agentic
+  // loop / subtask boundary / compaction pause), NOT the real end-of-turn.
+  // Cancel any pending postflight timer; the next genuine `session.idle`
+  // after the AI is fully done will reschedule. This guarantees postflight
+  // never fires while the model is still actively working.
+  if (input.sessionID) cancelPostflight(input.sessionID)
+
   if (config.preflight.disabled) return
   if (!config.preflight.tools.has(input.tool)) return
 
