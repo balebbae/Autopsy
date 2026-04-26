@@ -474,9 +474,7 @@ async def test_concurrent_batches_for_same_run_dont_conflict() -> None:
             assert count == 1
             ev_count = (
                 await session.execute(
-                    select(func.count())
-                    .select_from(RunEvent)
-                    .where(RunEvent.run_id == run_id)
+                    select(func.count()).select_from(RunEvent).where(RunEvent.run_id == run_id)
                 )
             ).scalar_one()
             assert ev_count == 2
