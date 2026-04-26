@@ -235,6 +235,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PreflightResponse" }
 
+  /v1/preflight/trace:
+    post:
+      tags: [preflight]
+      summary: |
+        Operator-facing instrumented preflight. Returns the same response
+        plus a structured trace of the pipeline (ANN candidates, edges
+        traversed in the recursive CTE, aggregation rows). Bypasses cache
+        and preflight_hits persistence so each call re-runs the pipeline.
+        Used by the dashboard's Retrieval view to visualize Graph RAG.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PreflightRequest" }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PreflightTraceResponse" }
+
   /v1/graph/nodes:
     get:
       tags: [graph]
@@ -550,6 +571,105 @@ components:
           type: string
           nullable: true
           description: "Markdown to append to the system prompt"
+
+    AnnCandidate:
+      type: object
+      required: [run_id, distance, status, age_days, in_threshold]
+      properties:
+        run_id: { type: string }
+        distance: { type: number, format: float, description: "Cosine distance (0=identical)" }
+        status: { type: string, enum: [rejected, approved] }
+        project: { type: string, nullable: true }
+        age_days: { type: number, format: float }
+        in_threshold:
+          type: boolean
+          description: "True iff cleared SIMILARITY_THRESHOLD and was forwarded to the graph stage"
+
+    TraceEdge:
+      type: object
+      required:
+        [
+          source_id,
+          target_id,
+          target_type,
+          target_name,
+          edge_type,
+          depth,
+          confidence,
+          decayed_confidence,
+          age_days,
+        ]
+      properties:
+        source_id: { type: string }
+        target_id: { type: string }
+        target_type: { type: string }
+        target_name: { type: string }
+        edge_type: { type: string }
+        depth: { type: integer }
+        confidence: { type: number, format: float }
+        decayed_confidence:
+          type: number
+          format: float
+          description: "chain_confidence * exp(-age_days / half_life)"
+        evidence_run_id: { type: string, nullable: true }
+        age_days: { type: number, format: float }
+
+    TraceAggregatedNode:
+      type: object
+      required: [name, type, raw_score, final_score, freq]
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [FailureMode, FixPattern, ChangePattern] }
+        raw_score: { type: number, format: float }
+        final_score:
+          type: number
+          format: float
+          description: "raw_score after counter-evidence dampening (FailureMode only differs)"
+        freq:
+          type: integer
+          description: "COUNT(DISTINCT evidence_run_id) contributing to this node"
+
+    PreflightTrace:
+      type: object
+      required:
+        [
+          embed_provider,
+          vector_dim,
+          similarity_threshold,
+          half_life_days,
+          counter_weight,
+          max_hop_depth,
+        ]
+      properties:
+        embed_provider: { type: string, enum: [stub, local, openai] }
+        vector_dim: { type: integer }
+        similarity_threshold: { type: number, format: float }
+        half_life_days: { type: number, format: float }
+        counter_weight: { type: number, format: float }
+        max_hop_depth: { type: integer }
+        candidates:
+          type: array
+          items: { $ref: "#/components/schemas/AnnCandidate" }
+        rejected_roots: { type: array, items: { type: string } }
+        approved_count: { type: integer, default: 0 }
+        dampening_factor: { type: number, format: float, default: 1.0 }
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/TraceEdge" }
+        aggregated:
+          type: array
+          items: { $ref: "#/components/schemas/TraceAggregatedNode" }
+        addendum_source:
+          type: string
+          enum: [none, template, llm]
+          default: none
+
+    PreflightTraceResponse:
+      type: object
+      required: [response, trace]
+      properties:
+        response: { $ref: "#/components/schemas/PreflightResponse" }
+        trace: { $ref: "#/components/schemas/PreflightTrace" }
 
     GraphNode:
       type: object
