@@ -8,6 +8,7 @@
 #   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --plugin-only
 #   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-start
 #   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-prompt
+#   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --stop
 #
 # Flags:
 #   --plugin-only   Skip the local stack, install only the plugin (point
@@ -16,6 +17,8 @@
 #                   Postgres still comes up.
 #   --no-prompt     Don't prompt for the optional Gemini API key. The service
 #                   stays in deterministic-classifier-only mode.
+#   --stop          Stop the running service + dashboard + postgres and exit.
+#                   Does not remove any files.
 #   --help, -h      Print this message.
 set -euo pipefail
 
@@ -44,6 +47,7 @@ Usage (from your project root):
   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --plugin-only
   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-start
   curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --no-prompt
+  curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --stop
 
 Flags:
   --plugin-only   Skip the local stack, install only the plugin (point
@@ -52,6 +56,8 @@ Flags:
                   Postgres still comes up.
   --no-prompt     Don't prompt for the optional Gemini API key. The service
                   stays in deterministic-classifier-only mode.
+  --stop          Stop the running service + dashboard + postgres and exit.
+                  Does not remove any files. Equivalent to ~/.autopsy/stop.sh.
   --help, -h      Print this message.
 
 Environment:
@@ -67,11 +73,13 @@ HELP
 PLUGIN_ONLY=0
 NO_START=0
 NO_PROMPT="${AUTOPSY_NO_PROMPT:-0}"
+STOP=0
 for arg in "$@"; do
   case "$arg" in
     --plugin-only) PLUGIN_ONLY=1 ;;
     --no-start)    NO_START=1 ;;
     --no-prompt)   NO_PROMPT=1 ;;
+    --stop)        STOP=1 ;;
     --help|-h)     print_help; exit 0 ;;
     *) warn "ignoring unknown arg: $arg" ;;
   esac
@@ -88,6 +96,56 @@ REPO="balebbae/Autopsy"
 BRANCH="main"
 SDK_PKG="@opencode-ai/plugin"
 SDK_VERSION="1.14.25"
+
+# ---- stop ----------------------------------------------------------------
+# Stop routine shared by `--stop` and the generated ~/.autopsy/stop.sh.
+# Kills the service + dashboard pidfiles and stops the postgres container.
+# Leaves the cloned repo, the .env files, and the docker volume intact.
+stop_stack() {
+  local any=0
+  for name in service dashboard; do
+    local f="$RUN_DIR/$name.pid"
+    [ -f "$f" ] || continue
+    local pid
+    pid="$(cat "$f" 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      for _ in 1 2 3 4 5; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 1
+      done
+      kill -9 "$pid" 2>/dev/null || true
+      okay "stopped $name (pid $pid)"
+      any=1
+    fi
+    rm -f "$f"
+  done
+
+  if [ -f "$REPO_DIR/infra/docker-compose.yml" ]; then
+    local dc=""
+    if docker compose version >/dev/null 2>&1; then
+      dc="docker compose"
+    elif command -v docker-compose >/dev/null 2>&1; then
+      dc="docker-compose"
+    fi
+    if [ -n "$dc" ]; then
+      if $dc -f "$REPO_DIR/infra/docker-compose.yml" stop >/dev/null 2>&1; then
+        okay "stopped postgres"
+        any=1
+      fi
+    fi
+  fi
+
+  if [ "$any" -eq 0 ]; then
+    log "nothing to stop (no pidfiles in $RUN_DIR, no compose stack at $REPO_DIR)"
+  fi
+}
+
+if [ "$STOP" -eq 1 ]; then
+  log "stopping Autopsy"
+  stop_stack
+  exit 0
+fi
 
 # ---- preflight -----------------------------------------------------------
 need() {
@@ -435,11 +493,14 @@ ${BOLD}Files${RESET}
   $REPO_DIR                  ${DIM}# cloned repo${RESET}
   $RUN_DIR/service.log       ${DIM}# service stdout/stderr${RESET}
   $RUN_DIR/dashboard.log     ${DIM}# dashboard stdout/stderr${RESET}
-  $INSTALL_ROOT/stop.sh      ${DIM}# stop everything${RESET}
+  $INSTALL_ROOT/stop.sh      ${DIM}# stop everything (local one-liner)${RESET}
 
 ${BOLD}Next${RESET}
   • Start opencode in this directory; the plugin loads automatically.
   • Open http://localhost:3000 in your browser to watch runs live.
   • Re-run \`curl -fsSL https://install.autopsy.surf/install.sh | bash\` to update.
+  • Stop everything:
+      \`curl -fsSL https://install.autopsy.surf/install.sh | bash -s -- --stop\`
+      ${DIM}# or: $INSTALL_ROOT/stop.sh${RESET}
 
 EOF
