@@ -7,8 +7,8 @@
 <meta name="description" content="Autopsy is forensic memory for AI coding agents. It records every action, autopsies the failures, builds a graph of why they happened, and warns the next agent before it repeats the same mistake.">
 <meta name="keywords" content="AI coding agents, opencode, Devin, agent observability, agent memory, agent infrastructure, retrieval-augmented generation, RAG, postmortem, code review, agent guardrails">
 <meta name="author" content="Autopsy">
-<meta name="theme-color" content="#0a0b10">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#f8f9fc">
+<meta name="color-scheme" content="light">
 <link rel="canonical" href="https://autopsy.surf/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
@@ -51,19 +51,29 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0a0b10;
-  --bg-soft:#10121a;
-  --fg:#f5f6fb;
-  --muted:#9ea0b3;
-  --muted-strong:#c8cdde;
-  --primary:oklch(0.7 0.17 250);
-  --primary-strong:oklch(0.78 0.19 250);
-  --primary-dim:oklch(0.55 0.18 250);
-  --reject:oklch(0.65 0.22 25);
-  --approve:oklch(0.7 0.18 145);
-  --card:oklch(0.18 0.02 260 / .55);
-  --border:oklch(0.3 0.02 260 / .55);
-  --border-soft:oklch(0.3 0.02 260 / .25);
+  --bg:#f8f9fc;
+  --bg-soft:#ffffff;
+  --bg-inset:#f0f2f7;
+  --fg:#0f1117;
+  --fg-strong:#1a1d28;
+  --muted:#5c6070;
+  --muted-strong:#3a3e4c;
+  --primary:#1a56db;
+  --primary-soft:#e8eefb;
+  --primary-dim:#2e6ff2;
+  --reject:#c53030;
+  --reject-soft:#fef2f2;
+  --approve:#16713a;
+  --approve-soft:#f0fdf4;
+  --evidence:#b45309;
+  --evidence-soft:#fffbeb;
+  --card:#ffffff;
+  --border:#e2e5ed;
+  --border-soft:#eceef4;
+  --shadow-sm:0 1px 2px rgba(15,17,23,.04);
+  --shadow:0 1px 3px rgba(15,17,23,.06), 0 1px 2px rgba(15,17,23,.04);
+  --shadow-md:0 4px 12px rgba(15,17,23,.06), 0 1px 3px rgba(15,17,23,.04);
+  --shadow-lg:0 10px 32px rgba(15,17,23,.08), 0 2px 6px rgba(15,17,23,.04);
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -76,27 +86,7 @@ body{
   text-rendering:optimizeLegibility;
   overflow-x:hidden;
   position:relative;
-  line-height:1.55;
-}
-body::before{
-  content:'';
-  position:fixed;
-  inset:0;
-  background:
-    radial-gradient(70% 60% at 50% 0%, oklch(0.7 0.17 250 / .25) 0%, transparent 60%),
-    radial-gradient(50% 50% at 80% 100%, oklch(0.6 0.22 250 / .18) 0%, transparent 70%);
-  pointer-events:none;
-  z-index:0;
-}
-body::after{
-  content:'';
-  position:fixed;
-  inset:0;
-  background-image:radial-gradient(oklch(0.85 0 0 / .07) 1px, transparent 1px);
-  background-size:32px 32px;
-  mask-image:radial-gradient(ellipse at center, black 30%, transparent 75%);
-  pointer-events:none;
-  z-index:0;
+  line-height:1.6;
 }
 .shell{position:relative;z-index:1}
 .container{max-width:1120px;margin:0 auto;padding:0 24px}
@@ -108,14 +98,14 @@ header.nav{
   z-index:10;
   backdrop-filter:blur(16px);
   -webkit-backdrop-filter:blur(16px);
-  background:oklch(0.06 0.01 260 / .65);
+  background:rgba(248,249,252,.85);
   border-bottom:1px solid var(--border-soft);
 }
 .nav-inner{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  height:64px;
+  height:56px;
 }
 .nav-brand{
   display:inline-flex;
@@ -125,26 +115,30 @@ header.nav{
   color:var(--fg);
   font-weight:600;
   letter-spacing:-0.02em;
+  font-size:15px;
 }
 .nav-brand .mark-sm{
-  width:24px;height:24px;
-  filter:drop-shadow(0 0 6px oklch(0.7 0.17 250 / .55));
+  width:22px;height:22px;
 }
 .nav-brand .mark-sm .pulse{stroke:var(--primary)}
 .nav-brand-kicker{
   font-family:'Geist Mono',ui-monospace,monospace;
   font-size:10px;
-  letter-spacing:.32em;
+  letter-spacing:.22em;
   text-transform:uppercase;
   color:var(--muted);
-  margin-left:8px;
+  margin-left:4px;
+  padding:2px 7px;
+  background:var(--bg-inset);
+  border-radius:4px;
+  border:1px solid var(--border-soft);
 }
 .nav-links{
   display:flex;
   align-items:center;
-  gap:28px;
-  font-family:'Geist Mono',ui-monospace,monospace;
+  gap:24px;
   font-size:13px;
+  font-weight:500;
 }
 .nav-links a{
   color:var(--muted);
@@ -153,13 +147,15 @@ header.nav{
 }
 .nav-links a:hover{color:var(--fg)}
 .nav-cta{
-  background:oklch(0.7 0.17 250 / .15);
-  border:1px solid oklch(0.7 0.17 250 / .4);
-  color:var(--fg)!important;
-  padding:7px 14px;
-  border-radius:8px;
+  background:var(--fg);
+  color:var(--bg)!important;
+  padding:6px 14px;
+  border-radius:6px;
+  font-size:13px;
+  font-weight:500;
+  transition:opacity .15s;
 }
-.nav-cta:hover{background:oklch(0.7 0.17 250 / .25)}
+.nav-cta:hover{opacity:.85}
 @media (max-width:640px){
   .nav-links a:not(.nav-cta){display:none}
   .nav-brand-kicker{display:none}
@@ -167,74 +163,74 @@ header.nav{
 
 /* ---------- hero ---------- */
 .hero{
-  /* hero box sits below the 64px nav. Asymmetric padding (extra at the
-     bottom) makes the flex-centered content land at exactly 50vh of the
-     viewport, instead of 32px below it. */
-  min-height:calc(100vh - 64px);
+  min-height:calc(100vh - 56px);
   padding:0 0 64px;
   display:flex;
   align-items:center;
   text-align:center;
+  position:relative;
+  overflow:hidden;
 }
-.hero > .container{width:100%}
-.eyebrow{
+.hero::before{
+  content:'';
+  position:absolute;
+  top:-120px;
+  left:50%;
+  transform:translateX(-50%);
+  width:800px;
+  height:600px;
+  background:radial-gradient(ellipse at center, rgba(26,86,219,.06) 0%, transparent 70%);
+  pointer-events:none;
+}
+.hero > .container{width:100%;position:relative}
+.case-badge{
   display:inline-flex;
   align-items:center;
   gap:8px;
-  padding:6px 14px;
+  padding:5px 14px 5px 10px;
   border-radius:999px;
   border:1px solid var(--border);
   background:var(--card);
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:12px;
-  letter-spacing:.18em;
+  font-size:11px;
+  letter-spacing:.08em;
   text-transform:uppercase;
-  color:var(--muted-strong);
-  margin-bottom:24px;
+  color:var(--muted);
+  margin-bottom:28px;
+  box-shadow:var(--shadow-sm);
 }
-.eyebrow .dot{
+.case-badge .indicator{
   width:6px;height:6px;border-radius:50%;
   background:var(--approve);
-  box-shadow:0 0 10px var(--approve);
+  box-shadow:0 0 0 3px rgba(22,113,58,.15);
 }
 .hero-mark{
-  width:140px;
-  height:140px;
-  margin:0 auto 24px;
+  width:120px;
+  height:120px;
+  margin:0 auto 20px;
   position:relative;
-}
-.hero-mark::before{
-  content:'';
-  position:absolute;
-  inset:-20px;
-  background:radial-gradient(closest-side, oklch(0.7 0.17 250 / .35), transparent 70%);
-  filter:blur(14px);
 }
 .hero-mark svg{
-  position:relative;
   width:100%;
   height:100%;
   color:var(--fg);
-  filter:drop-shadow(0 0 22px oklch(0.7 0.17 250 / .55));
 }
 .hero-mark .pulse{stroke:var(--primary)}
 .hero h1{
-  font-size:clamp(52px, 8.4vw, 104px);
-  font-weight:800;
-  letter-spacing:-0.045em;
+  font-size:clamp(48px, 7.5vw, 88px);
+  font-weight:600;
+  letter-spacing:-0.04em;
   line-height:0.95;
-  margin:0 0 16px;
-  background:linear-gradient(180deg,#ffffff 0%, #c8cdde 100%);
-  -webkit-background-clip:text;
-  background-clip:text;
-  color:transparent;
+  margin:0 0 20px;
+  color:var(--fg);
 }
 .hero-tagline{
-  font-size:clamp(18px, 2.1vw, 23px);
+  font-size:clamp(17px, 2vw, 21px);
   color:var(--muted-strong);
-  max-width:680px;
-  margin:0 auto 16px;
+  max-width:620px;
+  margin:0 auto 14px;
   font-weight:400;
+  line-height:1.55;
 }
 .hero-tagline em{
   color:var(--fg);
@@ -244,212 +240,281 @@ header.nav{
 .hero-sub{
   font-size:15px;
   color:var(--muted);
-  max-width:640px;
-  margin:0 auto 28px;
+  max-width:560px;
+  margin:0 auto 32px;
+  line-height:1.6;
 }
 .hero-cta{
   display:flex;
   align-items:center;
   justify-content:center;
-  gap:14px;
+  gap:12px;
   flex-wrap:wrap;
 }
 .btn{
   display:inline-flex;
   align-items:center;
   gap:8px;
-  padding:13px 22px;
-  border-radius:12px;
+  padding:11px 20px;
+  border-radius:8px;
   font-weight:500;
-  font-size:15px;
+  font-size:14px;
   text-decoration:none;
-  transition:transform .12s, background .15s, border-color .15s, color .15s;
+  transition:transform .12s, box-shadow .15s, opacity .15s;
   cursor:pointer;
   border:1px solid transparent;
   font-family:inherit;
 }
 .btn:hover{transform:translateY(-1px)}
 .btn-primary{
-  background:linear-gradient(180deg, oklch(0.72 0.17 250) 0%, oklch(0.62 0.18 250) 100%);
+  background:var(--fg);
   color:#fff;
-  box-shadow:0 8px 28px -10px oklch(0.7 0.17 250 / .6);
+  box-shadow:var(--shadow-md);
 }
-.btn-primary:hover{filter:brightness(1.08)}
+.btn-primary:hover{opacity:.9;box-shadow:var(--shadow-lg)}
 .btn-ghost{
-  background:transparent;
+  background:var(--card);
   color:var(--fg);
   border-color:var(--border);
+  box-shadow:var(--shadow-sm);
 }
-.btn-ghost:hover{background:oklch(0.25 0.02 260 / .4); border-color:oklch(0.5 0.02 260 / .8)}
+.btn-ghost:hover{background:var(--bg-inset);border-color:var(--border)}
 
 /* ---------- install command ---------- */
 .command{
-  max-width:600px;
-  margin:32px auto 0;
+  max-width:580px;
+  margin:28px auto 0;
   display:flex;
   align-items:center;
-  padding:14px 18px;
-  border-radius:14px;
+  padding:12px 16px;
+  border-radius:10px;
   border:1px solid var(--border);
-  background:var(--card);
-  backdrop-filter:blur(20px);
-  -webkit-backdrop-filter:blur(20px);
+  background:var(--fg);
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:13.5px;
+  font-size:13px;
   text-align:left;
-  box-shadow:0 8px 32px -12px oklch(0.7 0.17 250 / .35);
+  box-shadow:var(--shadow-md);
 }
-.command-prompt{color:var(--primary-strong);user-select:none;margin-right:10px}
-.command-text{color:var(--fg);flex:1;white-space:nowrap;overflow-x:auto;scrollbar-width:none}
+.command-prompt{color:rgba(255,255,255,.45);user-select:none;margin-right:10px}
+.command-text{color:#fff;flex:1;white-space:nowrap;overflow-x:auto;scrollbar-width:none}
 .command-text::-webkit-scrollbar{display:none}
 .copy-btn{
-  margin-left:14px;
-  padding:6px 12px;
-  border-radius:8px;
-  border:1px solid var(--border);
-  background:transparent;
-  color:var(--muted);
+  margin-left:12px;
+  padding:4px 10px;
+  border-radius:5px;
+  border:1px solid rgba(255,255,255,.15);
+  background:rgba(255,255,255,.08);
+  color:rgba(255,255,255,.65);
   font-family:inherit;
-  font-size:12px;
+  font-size:11px;
   cursor:pointer;
-  transition:color .15s, border-color .15s, background .15s;
+  transition:color .15s, background .15s;
   flex-shrink:0;
 }
-.copy-btn:hover{color:var(--fg);border-color:oklch(0.5 0.02 260 / .8);background:oklch(0.25 0.02 260 / .4)}
-.copy-btn.copied{color:var(--approve);border-color:oklch(0.5 0.15 145 / .6)}
+.copy-btn:hover{color:#fff;background:rgba(255,255,255,.15)}
+.copy-btn.copied{color:#4ade80;border-color:rgba(74,222,128,.3)}
 
 /* ---------- sections ---------- */
 section{padding:80px 0;position:relative}
-.section-eyebrow{
+.section-label{
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:12px;
-  letter-spacing:.32em;
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.14em;
   text-transform:uppercase;
-  color:var(--primary-strong);
-  margin:0 0 14px;
+  color:var(--primary);
+  margin:0 0 12px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+}
+.section-label::before{
+  content:'';
+  display:block;
+  width:12px;
+  height:1.5px;
+  background:var(--primary);
+  border-radius:1px;
 }
 .section-title{
-  font-size:clamp(32px, 4.4vw, 48px);
+  font-size:clamp(28px, 4vw, 42px);
   font-weight:700;
   letter-spacing:-0.025em;
-  line-height:1.1;
-  margin:0 0 20px;
-  max-width:780px;
+  line-height:1.15;
+  margin:0 0 16px;
+  max-width:700px;
+  color:var(--fg);
 }
 .section-lede{
-  font-size:18px;
-  color:var(--muted-strong);
-  max-width:680px;
-  margin:0 0 56px;
+  font-size:17px;
+  color:var(--muted);
+  max-width:600px;
+  margin:0 0 48px;
+  line-height:1.6;
+}
+
+/* ---------- divider ---------- */
+.divider{
+  width:100%;
+  height:1px;
+  background:var(--border-soft);
+  margin:0;
 }
 
 /* ---------- problem ---------- */
 .problem-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
-  gap:18px;
-  margin-top:32px;
+  grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+  gap:16px;
+  margin-top:28px;
 }
 .problem{
   padding:24px;
-  border-radius:14px;
+  border-radius:12px;
   background:var(--card);
   border:1px solid var(--border);
-  backdrop-filter:blur(12px);
+  box-shadow:var(--shadow-sm);
+  position:relative;
+  overflow:hidden;
 }
-.problem-icon{
-  width:40px;height:40px;
-  display:grid;place-items:center;
-  border-radius:10px;
-  background:oklch(0.65 0.22 25 / .15);
-  color:var(--reject);
-  margin-bottom:14px;
+.problem::before{
+  content:'';
+  position:absolute;
+  top:0;
+  left:0;
+  width:3px;
+  height:100%;
+  background:var(--reject);
+  border-radius:3px 0 0 3px;
+}
+.problem-tag{
   font-family:'Geist Mono',ui-monospace,monospace;
+  font-size:10px;
   font-weight:600;
-  font-size:18px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--reject);
+  background:var(--reject-soft);
+  padding:3px 8px;
+  border-radius:4px;
+  display:inline-block;
+  margin-bottom:12px;
 }
 .problem h3{
-  font-size:18px;
+  font-size:16px;
   font-weight:600;
   margin:0 0 8px;
+  color:var(--fg-strong);
 }
 .problem p{
-  font-size:14.5px;
+  font-size:14px;
   color:var(--muted);
   margin:0;
-  line-height:1.55;
+  line-height:1.6;
 }
 
-/* ---------- loop ---------- */
+/* ---------- loop / how-it-works ---------- */
 .loop{
   display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
-  gap:18px;
-  position:relative;
+  grid-template-columns:repeat(4, 1fr);
+  gap:1px;
+  background:var(--border);
+  border-radius:14px;
+  overflow:hidden;
+  border:1px solid var(--border);
+  box-shadow:var(--shadow);
+}
+@media (max-width:840px){
+  .loop{grid-template-columns:1fr 1fr}
+}
+@media (max-width:520px){
+  .loop{grid-template-columns:1fr}
 }
 .step{
-  padding:28px;
-  border-radius:16px;
+  padding:28px 24px;
   background:var(--card);
-  border:1px solid var(--border);
   position:relative;
-  backdrop-filter:blur(12px);
 }
 .step-num{
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:11px;
-  letter-spacing:.32em;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.14em;
   text-transform:uppercase;
-  color:var(--primary-strong);
-  margin-bottom:12px;
+  color:var(--primary);
+  margin-bottom:14px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.step-num::before{
+  content:'';
+  display:block;
+  width:18px;
+  height:18px;
+  border-radius:50%;
+  border:1.5px solid var(--primary);
+  flex-shrink:0;
+  background:var(--primary-soft);
 }
 .step-title{
-  font-size:19px;
+  font-size:17px;
   font-weight:600;
-  margin:0 0 10px;
+  margin:0 0 8px;
   letter-spacing:-0.01em;
+  color:var(--fg-strong);
 }
 .step-body{
-  font-size:14.5px;
+  font-size:13.5px;
   color:var(--muted);
   margin:0;
+  line-height:1.6;
 }
 .step-body code{
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:12.5px;
-  color:var(--muted-strong);
-  background:oklch(0.2 0.01 260 / .6);
-  padding:1px 6px;
-  border-radius:5px;
+  font-size:12px;
+  color:var(--fg);
+  background:var(--bg-inset);
+  padding:1px 5px;
+  border-radius:4px;
+  border:1px solid var(--border-soft);
 }
 
 /* ---------- features ---------- */
 .features{
   display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
-  gap:1px;
-  background:var(--border-soft);
-  border:1px solid var(--border-soft);
-  border-radius:18px;
-  overflow:hidden;
+  grid-template-columns:repeat(2, 1fr);
+  gap:16px;
+}
+@media (max-width:640px){
+  .features{grid-template-columns:1fr}
 }
 .feature{
-  padding:32px 28px;
-  background:var(--bg);
+  padding:28px 24px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:12px;
+  box-shadow:var(--shadow-sm);
+  transition:box-shadow .2s, border-color .2s;
+}
+.feature:hover{
+  box-shadow:var(--shadow);
+  border-color:var(--border);
 }
 .feature-mark{
-  width:36px;
-  height:36px;
-  margin-bottom:18px;
-  color:var(--primary-strong);
+  width:32px;
+  height:32px;
+  margin-bottom:16px;
+  color:var(--primary);
 }
 .feature h3{
-  font-size:17px;
+  font-size:15px;
   font-weight:600;
-  margin:0 0 8px;
+  margin:0 0 6px;
+  color:var(--fg-strong);
 }
 .feature p{
-  font-size:14px;
+  font-size:13.5px;
   color:var(--muted);
   margin:0;
   line-height:1.6;
@@ -458,34 +523,36 @@ section{padding:80px 0;position:relative}
 /* ---------- stats ---------- */
 .stats{
   display:grid;
-  grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns:repeat(4, 1fr);
   gap:1px;
-  background:var(--border-soft);
-  border-radius:18px;
+  background:var(--border);
+  border-radius:14px;
   overflow:hidden;
-  margin-top:48px;
-  border:1px solid var(--border-soft);
+  margin-top:40px;
+  border:1px solid var(--border);
+  box-shadow:var(--shadow);
+}
+@media (max-width:640px){
+  .stats{grid-template-columns:1fr 1fr}
 }
 .stat{
-  background:var(--bg);
-  padding:32px 24px;
+  background:var(--card);
+  padding:28px 20px;
   text-align:center;
 }
 .stat-num{
-  font-size:42px;
+  font-size:36px;
   font-weight:700;
   letter-spacing:-0.03em;
-  background:linear-gradient(180deg,#ffffff 0%, #9ea0b3 100%);
-  -webkit-background-clip:text;
-  background-clip:text;
-  color:transparent;
+  color:var(--fg);
   line-height:1;
-  margin-bottom:8px;
+  margin-bottom:6px;
 }
 .stat-label{
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:11px;
-  letter-spacing:.22em;
+  font-size:10px;
+  font-weight:500;
+  letter-spacing:.14em;
   text-transform:uppercase;
   color:var(--muted);
 }
@@ -494,31 +561,40 @@ section{padding:80px 0;position:relative}
 .cta-card{
   margin-top:40px;
   padding:56px 32px;
-  border-radius:24px;
-  background:
-    radial-gradient(50% 60% at 50% 0%, oklch(0.7 0.17 250 / .25) 0%, transparent 75%),
-    var(--card);
+  border-radius:16px;
+  background:var(--card);
   border:1px solid var(--border);
   text-align:center;
   position:relative;
   overflow:hidden;
+  box-shadow:var(--shadow);
+}
+.cta-card::before{
+  content:'';
+  position:absolute;
+  top:0;
+  left:0;
+  right:0;
+  height:3px;
+  background:linear-gradient(90deg, var(--primary) 0%, var(--primary-dim) 50%, var(--approve) 100%);
 }
 .cta-card h2{
-  font-size:clamp(28px, 4vw, 40px);
+  font-size:clamp(24px, 3.5vw, 36px);
   font-weight:700;
   letter-spacing:-0.025em;
-  margin:0 0 14px;
+  margin:0 0 12px;
+  color:var(--fg);
 }
 .cta-card p{
-  color:var(--muted-strong);
-  margin:0 auto 28px;
-  max-width:540px;
-  font-size:16px;
+  color:var(--muted);
+  margin:0 auto 24px;
+  max-width:480px;
+  font-size:15px;
 }
 
-/* ---------- end-of-page (CTA + footer pair fills last viewport) ---------- */
+/* ---------- end-of-page ---------- */
 .end{
-  min-height:calc(100vh - 64px);
+  min-height:calc(100vh - 56px);
   display:flex;
   flex-direction:column;
 }
@@ -533,7 +609,7 @@ section{padding:80px 0;position:relative}
 
 /* ---------- footer ---------- */
 footer{
-  padding:48px 0 64px;
+  padding:40px 0 56px;
   border-top:1px solid var(--border-soft);
 }
 .foot-inner{
@@ -541,31 +617,32 @@ footer{
   align-items:center;
   justify-content:space-between;
   flex-wrap:wrap;
-  gap:24px;
+  gap:20px;
 }
 .foot-brand{
   display:inline-flex;
   align-items:center;
-  gap:10px;
+  gap:8px;
   font-weight:500;
+  font-size:14px;
   color:var(--muted-strong);
 }
 .foot-brand .mark-sm{
-  width:22px;height:22px;
+  width:18px;height:18px;
   color:var(--muted-strong);
 }
 .foot-brand .mark-sm .pulse{stroke:var(--primary)}
 .foot-meta{
   font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:12px;
+  font-size:11px;
   color:var(--muted);
   letter-spacing:.06em;
 }
 .foot-links{
   display:flex;
-  gap:24px;
-  font-family:'Geist Mono',ui-monospace,monospace;
-  font-size:12.5px;
+  gap:20px;
+  font-size:12px;
+  font-weight:500;
 }
 .foot-links a{
   color:var(--muted);
@@ -582,6 +659,19 @@ footer{
   .end{min-height:auto}
   .end > #install{padding:56px 0}
   .foot-inner{flex-direction:column;text-align:center}
+}
+
+/* ---------- graph decoration ---------- */
+.graph-bg{
+  position:absolute;
+  top:0;right:0;bottom:0;left:0;
+  overflow:hidden;
+  pointer-events:none;
+  z-index:-1;
+}
+.graph-bg svg{
+  position:absolute;
+  opacity:.35;
 }
 </style>
 </head>
@@ -611,7 +701,6 @@ footer{
 <!-- ============== hero ============== -->
 <section class="hero">
   <div class="container">
-    <div class="eyebrow"><span class="dot"></span>Built for opencode &amp; Devin</div>
     <div class="hero-mark">
       <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M16 4 L5.5 27 M16 4 L26.5 27"/>
@@ -619,40 +708,47 @@ footer{
       </svg>
     </div>
     <h1>Autopsy</h1>
-    <p class="hero-tagline">Forensic memory for AI coding agents. Every <em>failure</em> becomes a <em>guardrail</em>.</p>
-    <p class="hero-sub">Autopsy records every action your coding agent takes, autopsies the failures, builds a graph of <em>why</em> they happened, and injects warnings into the next agent's system prompt, so it doesn't make the same mistake twice.</p>
+    <p class="hero-tagline">Forensic memory for AI coding agents.<br>Every <em>failure</em> becomes a <em>guardrail</em>.</p>
+    <p class="hero-sub">Records every action your coding agent takes, autopsies the failures, builds a knowledge graph of why they happened, and injects warnings into the next run's system prompt.</p>
     <div class="hero-cta">
       <a href="#install" class="btn btn-primary">
         Install
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
       </a>
       <a href="https://github.com/balebbae/Autopsy" class="btn btn-ghost" target="_blank" rel="noopener">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2c-3.34.72-4.04-1.61-4.04-1.61a3.18 3.18 0 0 0-1.34-1.76c-1.09-.74.08-.73.08-.73a2.52 2.52 0 0 1 1.84 1.24 2.56 2.56 0 0 0 3.5 1 2.56 2.56 0 0 1 .77-1.6c-2.66-.3-5.46-1.33-5.46-5.93a4.65 4.65 0 0 1 1.24-3.22 4.32 4.32 0 0 1 .12-3.18s1-.32 3.3 1.23a11.43 11.43 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23a4.32 4.32 0 0 1 .12 3.18 4.64 4.64 0 0 1 1.24 3.22c0 4.61-2.81 5.62-5.48 5.92a2.86 2.86 0 0 1 .82 2.22v3.29c0 .32.22.69.83.58A12 12 0 0 0 12 .3z"/></svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2c-3.34.72-4.04-1.61-4.04-1.61a3.18 3.18 0 0 0-1.34-1.76c-1.09-.74.08-.73.08-.73a2.52 2.52 0 0 1 1.84 1.24 2.56 2.56 0 0 0 3.5 1 2.56 2.56 0 0 1 .77-1.6c-2.66-.3-5.46-1.33-5.46-5.93a4.65 4.65 0 0 1 1.24-3.22 4.32 4.32 0 0 1 .12-3.18s1-.32 3.3 1.23a11.43 11.43 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23a4.32 4.32 0 0 1 .12 3.18 4.64 4.64 0 0 1 1.24 3.22c0 4.61-2.81 5.62-5.48 5.92a2.86 2.86 0 0 1 .82 2.22v3.29c0 .32.22.69.83.58A12 12 0 0 0 12 .3z"/></svg>
         View on GitHub
       </a>
+    </div>
+    <div class="command" role="region" aria-label="Install command">
+      <span class="command-prompt">$</span>
+      <code class="command-text" id="cmd">curl -fsSL https://install.autopsy.surf/install.sh | bash</code>
+      <button class="copy-btn" id="copy" type="button" aria-label="Copy install command">Copy</button>
     </div>
   </div>
 </section>
 
+<div class="divider"></div>
+
 <!-- ============== problem ============== -->
 <section id="problem">
   <div class="container">
-    <p class="section-eyebrow">The problem</p>
+    <p class="section-label">Case Evidence</p>
     <h2 class="section-title">Coding agents fail the same way every time.</h2>
-    <p class="section-lede">Every run is a clean slate. Yesterday's lesson is gone. The agent re-discovers the same migration bug, the same type drift, the same missing test, across every project, on every team, forever.</p>
+    <p class="section-lede">Every run is a clean slate. Yesterday's lesson is gone. The agent re-discovers the same bugs across every project, on every team, forever.</p>
     <div class="problem-grid">
       <div class="problem">
-        <div class="problem-icon">!</div>
+        <span class="problem-tag">Exhibit A</span>
         <h3>Incomplete schema changes</h3>
         <p>The agent edits a model and ships. The migration is missing. The deploy fails. Next week another agent does the exact same thing in a different repo.</p>
       </div>
       <div class="problem">
-        <div class="problem-icon">!</div>
+        <span class="problem-tag">Exhibit B</span>
         <h3>Frontend / backend drift</h3>
         <p>Backend types change. Generated frontend types don't. Compilation breaks somewhere downstream nobody noticed.</p>
       </div>
       <div class="problem">
-        <div class="problem-icon">!</div>
+        <span class="problem-tag">Exhibit C</span>
         <h3>Missing test coverage</h3>
         <p>Code shipped, no test added. The bug surfaces in CI hours later. The agent's already moved on to the next task.</p>
       </div>
@@ -660,41 +756,45 @@ footer{
   </div>
 </section>
 
+<div class="divider"></div>
+
 <!-- ============== how it works ============== -->
 <section id="how">
   <div class="container">
-    <p class="section-eyebrow">How it works</p>
+    <p class="section-label">Procedure</p>
     <h2 class="section-title">Record. Autopsy. Graph. Preflight.</h2>
     <p class="section-lede">A four-step closed loop that turns rejected runs into prompt-time warnings for every future run.</p>
     <div class="loop">
       <div class="step">
-        <div class="step-num">01 · Record</div>
+        <div class="step-num">01 &middot; Record</div>
         <h3 class="step-title">Capture every action</h3>
         <p class="step-body">A lightweight opencode plugin streams every tool call, file edit, chat message, and rejection into Autopsy in real time. Fire-and-forget, never blocking the agent.</p>
       </div>
       <div class="step">
-        <div class="step-num">02 · Autopsy</div>
+        <div class="step-num">02 &middot; Autopsy</div>
         <h3 class="step-title">Classify the failure</h3>
         <p class="step-body">A deterministic classifier + LLM enhancer extracts <code>FailureMode</code>s and <code>FixPattern</code>s from each rejected run.</p>
       </div>
       <div class="step">
-        <div class="step-num">03 · Graph</div>
+        <div class="step-num">03 &middot; Graph</div>
         <h3 class="step-title">Build the memory</h3>
         <p class="step-body">Postgres + pgvector store a project-scoped graph of tasks → runs → failures → fixes, with temporal decay and counter-evidence dampening.</p>
       </div>
       <div class="step">
-        <div class="step-num">04 · Preflight</div>
+        <div class="step-num">04 &middot; Preflight</div>
         <h3 class="step-title">Warn the next run</h3>
-        <p class="step-body">When the agent starts a new task, Autopsy retrieves similar past failures and injects a warning into its system prompt, or blocks the tool call entirely if the risk is high enough.</p>
+        <p class="step-body">When the agent starts a new task, Autopsy retrieves similar past failures and injects a warning into its system prompt, or blocks the tool call entirely.</p>
       </div>
     </div>
   </div>
 </section>
 
+<div class="divider"></div>
+
 <!-- ============== features ============== -->
 <section id="features">
   <div class="container">
-    <p class="section-eyebrow">What's in the box</p>
+    <p class="section-label">Forensic Toolkit</p>
     <h2 class="section-title">Built deep, end-to-end.</h2>
     <p class="section-lede">Not a logging tool. Not a wrapper. A real, end-to-end agent infrastructure layer with retrieval, prevention, and a live dashboard.</p>
     <div class="features">
@@ -714,25 +814,25 @@ footer{
       <div class="feature">
         <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M6 8.5l5.4 7.5M18 8.5L12.6 16M8.5 6h7"/></svg>
         <h3>Failure graph</h3>
-        <p>Postgres + pgvector. Project-scoped, temporally decayed, counter-evidence dampened. Hybrid ANN + 3-hop graph walk in <code>~10ms</code> warm.</p>
+        <p>Postgres + pgvector. Project-scoped, temporally decayed, counter-evidence dampened. Hybrid ANN + 3-hop graph walk in ~10ms warm.</p>
       </div>
 
       <div class="feature">
         <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L4 6 v6.5 c0 4.7 3.4 8.7 8 9.5 c4.6-.8 8-4.8 8-9.5 V6 L12 3 z"/><path d="M12 9 v4.5"/><circle cx="12" cy="16.5" r=".6" fill="currentColor" stroke="none"/></svg>
         <h3>Preflight injection</h3>
-        <p>On every chat turn, Autopsy retrieves similar past failures and injects a warning into the system prompt. On every tool call, it can block the call if the risk crosses a threshold.</p>
+        <p>On every chat turn, Autopsy retrieves similar past failures and injects a warning into the system prompt. On every tool call, it can block if the risk crosses a threshold.</p>
       </div>
 
       <div class="feature">
         <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4 V3 a1 1 0 0 1 1 -1 h4 a1 1 0 0 1 1 1 v1 z"/><path d="M9 13 l2 2 l4 -4"/></svg>
         <h3>Postflight checks</h3>
-        <p>After every code-mod tool, Autopsy automatically runs lint, typecheck, and tests. Failures are folded back into the graph as a real rejection so the next run gets warned.</p>
+        <p>After every code-mod tool, Autopsy runs lint, typecheck, and tests. Failures are folded back into the graph as real rejections so the next run gets warned.</p>
       </div>
 
       <div class="feature">
         <svg class="feature-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
         <h3>Live dashboard</h3>
-        <p>Next.js + SSE. Timeline of every event, autopsy report on every run, force-graph view of the whole failure graph, and a green badge when Autopsy caught something before it failed.</p>
+        <p>Next.js + SSE. Timeline of every event, autopsy report on every run, force-graph view of the failure graph, and a badge when Autopsy caught something before it failed.</p>
       </div>
 
       <div class="feature">
@@ -775,17 +875,17 @@ footer{
 <section id="install">
   <div class="container">
     <div class="cta-card">
-      <p class="section-eyebrow" style="color:var(--primary-strong)">Get started</p>
+      <p class="section-label" style="justify-content:center">Get started</p>
       <h2>One command. Zero config.</h2>
       <p>From the root of your opencode project. Re-run anytime to update.</p>
       <div class="command" role="region" aria-label="Install command">
         <span class="command-prompt">$</span>
-        <code class="command-text" id="cmd">curl -fsSL https://install.autopsy.surf/install.sh | bash</code>
-        <button class="copy-btn" id="copy" type="button" aria-label="Copy install command">Copy</button>
+        <code class="command-text" id="cmd2">curl -fsSL https://install.autopsy.surf/install.sh | bash</code>
+        <button class="copy-btn" id="copy2" type="button" aria-label="Copy install command">Copy</button>
       </div>
-      <div class="hero-cta" style="margin-top:32px;margin-bottom:0">
+      <div class="hero-cta" style="margin-top:28px;margin-bottom:0">
         <a href="https://github.com/balebbae/Autopsy" class="btn btn-ghost" target="_blank" rel="noopener">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2c-3.34.72-4.04-1.61-4.04-1.61a3.18 3.18 0 0 0-1.34-1.76c-1.09-.74.08-.73.08-.73a2.52 2.52 0 0 1 1.84 1.24 2.56 2.56 0 0 0 3.5 1 2.56 2.56 0 0 1 .77-1.6c-2.66-.3-5.46-1.33-5.46-5.93a4.65 4.65 0 0 1 1.24-3.22 4.32 4.32 0 0 1 .12-3.18s1-.32 3.3 1.23a11.43 11.43 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23a4.32 4.32 0 0 1 .12 3.18 4.64 4.64 0 0 1 1.24 3.22c0 4.61-2.81 5.62-5.48 5.92a2.86 2.86 0 0 1 .82 2.22v3.29c0 .32.22.69.83.58A12 12 0 0 0 12 .3z"/></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2c-3.34.72-4.04-1.61-4.04-1.61a3.18 3.18 0 0 0-1.34-1.76c-1.09-.74.08-.73.08-.73a2.52 2.52 0 0 1 1.84 1.24 2.56 2.56 0 0 0 3.5 1 2.56 2.56 0 0 1 .77-1.6c-2.66-.3-5.46-1.33-5.46-5.93a4.65 4.65 0 0 1 1.24-3.22 4.32 4.32 0 0 1 .12-3.18s1-.32 3.3 1.23a11.43 11.43 0 0 1 6 0c2.3-1.55 3.3-1.23 3.3-1.23a4.32 4.32 0 0 1 .12 3.18 4.64 4.64 0 0 1 1.24 3.22c0 4.61-2.81 5.62-5.48 5.92a2.86 2.86 0 0 1 .82 2.22v3.29c0 .32.22.69.83.58A12 12 0 0 0 12 .3z"/></svg>
           Read the source
         </a>
       </div>
@@ -817,16 +917,20 @@ footer{
 
 <script>
 (function(){
-  var btn=document.getElementById('copy');
-  if(!btn)return;
-  var cmd=document.getElementById('cmd').textContent;
-  btn.addEventListener('click',function(){
-    navigator.clipboard.writeText(cmd).then(function(){
-      btn.classList.add('copied');
-      btn.textContent='Copied';
-      setTimeout(function(){btn.classList.remove('copied');btn.textContent='Copy';},1600);
+  function wire(btnId, cmdId){
+    var btn=document.getElementById(btnId);
+    if(!btn)return;
+    var cmd=document.getElementById(cmdId).textContent;
+    btn.addEventListener('click',function(){
+      navigator.clipboard.writeText(cmd).then(function(){
+        btn.classList.add('copied');
+        btn.textContent='Copied';
+        setTimeout(function(){btn.classList.remove('copied');btn.textContent='Copy';},1600);
+      });
     });
-  });
+  }
+  wire('copy','cmd');
+  wire('copy2','cmd2');
 })();
 </script>
 </body>
