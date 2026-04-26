@@ -5,7 +5,9 @@ import useSWR from "swr"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import {
+  Activity,
   FileJson,
+  GitBranch,
   Image as ImageIcon,
   Link2,
   Maximize,
@@ -27,8 +29,11 @@ import {
   postGraphImport,
   type GraphEdge,
   type GraphNode,
+  type Run,
   type RunSummary,
 } from "@/lib/api"
+import { TimelineView } from "./timeline-view"
+import { BranchedView } from "./branched-view"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -113,10 +118,30 @@ function filterByRun(
   return { nodes: runNodes, edges: runEdges }
 }
 
+type ViewKey = "force" | "timeline" | "branched"
+
+function parseView(v: string | null): ViewKey {
+  if (v === "timeline" || v === "branched") return v
+  return "force"
+}
+
+const runDetailFetcher = async (key: [string, string]): Promise<Run | null> => {
+  const [, runId] = key
+  if (!runId) return null
+  try {
+    const r = await fetch(`${apiBaseUrl}/v1/runs/${runId}`, { cache: "no-store" })
+    if (!r.ok) return null
+    return (await r.json()) as Run
+  } catch {
+    return null
+  }
+}
+
 export function GraphExplorer() {
   const params = useSearchParams()
   const router = useRouter()
   const runFilter = params?.get("run") ?? ""
+  const view = parseView(params?.get("view") ?? null)
 
   const { data, isLoading, mutate } = useSWR(
     ["graph", apiBaseUrl],
@@ -140,6 +165,28 @@ export function GraphExplorer() {
     },
     [params, router],
   )
+
+  const setView = React.useCallback(
+    (next: ViewKey) => {
+      const params2 = new URLSearchParams(params?.toString() ?? "")
+      if (next === "force") params2.delete("view")
+      else params2.set("view", next)
+      const qs = params2.toString()
+      router.replace(qs ? `/graph?${qs}` : "/graph", { scroll: false })
+    },
+    [params, router],
+  )
+
+  // Fetch full run detail (events + rejections + preflight) for timeline /
+  // branched views. Skip for the force view to avoid an unnecessary request.
+  const runDetailKey: [string, string] | null =
+    view !== "force" && runFilter ? ["runDetail", runFilter] : null
+  const { data: runDetailData, isLoading: runDetailLoading } = useSWR(
+    runDetailKey,
+    runDetailFetcher,
+    { revalidateOnFocus: false },
+  )
+  const effectiveRun = runDetailData ?? null
 
   // Unfiltered base graph — used both for the all-runs view and for computing
   // which runs actually have evidence in the picker.
@@ -398,7 +445,7 @@ export function GraphExplorer() {
     <div className="relative flex h-[calc(100vh-3.5rem)] w-full overflow-hidden bg-grid-dot">
       {/* Floating top toolbar */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-4">
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className={cn("pointer-events-auto flex items-center gap-2", view !== "force" && "hidden")}>
             <div className="rounded-lg border border-border bg-card/80 backdrop-blur-md px-3 py-1.5 shadow-sm">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
               {runFilter ? "Failure graph · run focus" : "Failure graph"}
@@ -423,36 +470,55 @@ export function GraphExplorer() {
         </div>
 
         <div className="pointer-events-auto flex items-center gap-3">
-          <Card className="flex items-center gap-2 px-3 py-2 backdrop-blur-md bg-card/90 shadow-md">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search nodes…"
-                className="h-10 pl-10 w-64 text-sm"
-              />
-            </div>
-            {(() => {
-              // Only offer runs that actually have graph evidence — otherwise
-              // selecting them produces an empty subgraph. Always include the
-              // currently-selected run even if it has no evidence so the
-              // dropdown reflects the URL state.
-              const selectableRuns = (runsData ?? []).filter(
-                (r) => runIdsWithEvidence.has(r.run_id) || r.run_id === runFilter,
-              )
-              if (selectableRuns.length === 0) return null
-              return (
+          <Card className="flex items-center gap-1 p-1 backdrop-blur-md bg-card/90 shadow-md">
+            <ViewToggleButton
+              active={view === "force"}
+              onClick={() => setView("force")}
+              icon={<Network className="h-3.5 w-3.5" />}
+              label="Force"
+            />
+            <ViewToggleButton
+              active={view === "timeline"}
+              onClick={() => setView("timeline")}
+              icon={<Activity className="h-3.5 w-3.5" />}
+              label="Timeline"
+            />
+            <ViewToggleButton
+              active={view === "branched"}
+              onClick={() => setView("branched")}
+              icon={<GitBranch className="h-3.5 w-3.5" />}
+              label="Branched"
+            />
+          </Card>
+          {(() => {
+            // Run picker stands alone so it stays visible across all three views.
+            // For the force view we keep the original behavior (only show runs
+            // with graph evidence). For timeline / branched, show every run
+            // since those views don't depend on the graph data being populated.
+            const allRuns = runsData ?? []
+            const selectableRuns =
+              view === "force"
+                ? allRuns.filter(
+                    (r) =>
+                      runIdsWithEvidence.has(r.run_id) || r.run_id === runFilter,
+                  )
+                : allRuns
+            if (selectableRuns.length === 0) return null
+            const placeholder = view === "force" ? "All runs" : "Pick a run…"
+            return (
+              <Card className="flex items-center gap-2 px-3 py-2 backdrop-blur-md bg-card/90 shadow-md">
                 <Select
                   value={runFilter || "__all__"}
                   onValueChange={(v) => setRunFilter(v === "__all__" ? "" : v)}
                 >
                   <SelectTrigger className="h-10 w-56 text-sm">
                     <Network className="h-4 w-4 mr-2 opacity-60" />
-                    <SelectValue placeholder="All runs" />
+                    <SelectValue placeholder={placeholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__all__">All runs</SelectItem>
+                    {view === "force" ? (
+                      <SelectItem value="__all__">All runs</SelectItem>
+                    ) : null}
                     {selectableRuns.map((r) => (
                       <SelectItem key={r.run_id} value={r.run_id}>
                         <span className="truncate max-w-[20rem] inline-block align-middle">
@@ -462,8 +528,19 @@ export function GraphExplorer() {
                     ))}
                   </SelectContent>
                 </Select>
-              )
-            })()}
+              </Card>
+            )
+          })()}
+          <Card className={cn("flex items-center gap-2 px-3 py-2 backdrop-blur-md bg-card/90 shadow-md", view !== "force" && "hidden")}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search nodes…"
+                className="h-10 pl-10 w-64 text-sm"
+              />
+            </div>
             <Select value={layout} onValueChange={(v) => setLayout(v as LayoutKey)}>
               <SelectTrigger className="h-10 w-44 text-sm">
                 <Wand2 className="h-4 w-4 mr-2 opacity-60" />
@@ -618,8 +695,8 @@ export function GraphExplorer() {
         </div>
       </div>
 
-      {/* Simplified filter panel */}
-      <div className="absolute left-4 top-28 z-10">
+      {/* Simplified filter panel — only relevant for force view */}
+      <div className={cn("absolute left-4 top-28 z-10", view !== "force" && "hidden")}>
         <Card className="backdrop-blur-md bg-card/90 shadow-md p-4 w-56">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-medium">Filters</span>
@@ -667,8 +744,15 @@ export function GraphExplorer() {
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 relative">
-        {!hasData ? (
+      <div className={cn("flex-1 relative", view !== "force" && "pt-20")}>
+        {view !== "force" ? (
+          <RunViewSwitch
+            view={view}
+            run={effectiveRun}
+            runFilter={runFilter}
+            isLoading={runDetailLoading}
+          />
+        ) : !hasData ? (
           <div className="absolute inset-0 grid place-items-center p-6">
             {runFilter ? (
               <EmptyState
@@ -781,4 +865,72 @@ function FullCanvasSkeleton() {
       </div>
     </div>
   )
+}
+
+function ViewToggleButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        active
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function RunViewSwitch({
+  view,
+  run,
+  runFilter,
+  isLoading,
+}: {
+  view: "timeline" | "branched"
+  run: Run | null
+  runFilter: string
+  isLoading: boolean
+}) {
+  if (!runFilter) {
+    return (
+      <div className="absolute inset-0 grid place-items-center p-6">
+        <EmptyState
+          Icon={view === "timeline" ? Activity : GitBranch}
+          title={`Pick a run to view its ${view === "timeline" ? "timeline" : "branched timeline"}`}
+          description={
+            view === "timeline"
+              ? "The timeline view shows a per-run narrative \u2014 user messages drive the spine, attempts hang below. Use the run picker above to choose one."
+              : "The branched view renders each user message as a spine point with agent attempts branching downward and rejections terminating at \u2715. Pick a run above."
+          }
+        />
+      </div>
+    )
+  }
+  if (isLoading || !run) {
+    return (
+      <div className="absolute inset-0 grid place-items-center">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <RefreshCw className="h-4 w-4 animate-spin" /> Loading run…
+        </div>
+      </div>
+    )
+  }
+  if (view === "timeline") return <TimelineView run={run} />
+  return <BranchedView run={run} />
 }
