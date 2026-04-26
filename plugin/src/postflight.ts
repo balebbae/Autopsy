@@ -18,6 +18,10 @@
 // - Always emit a timeline event (started + completed) so the dashboard
 //   can render a "checks ran" entry even when nothing failed.
 
+import { existsSync, statSync } from "node:fs"
+import { dirname, resolve as resolvePath } from "node:path"
+import { fileURLToPath } from "node:url"
+
 import { enqueue, flush } from "./batcher.ts"
 import { postFeedback, postRejection } from "./client.ts"
 import { config } from "./config.ts"
@@ -114,13 +118,80 @@ type Ctx = {
 
 let bound: Ctx | undefined
 
+// Self-locate the Autopsy repo root by walking up from the plugin's source
+// file. We know the plugin lives at `<REPO>/plugin/src/postflight.ts`, so
+// the repo root is the nearest ancestor that has a Makefile AND the
+// `plugin/`, `dashboard/`, `service/` siblings the default checks expect.
+//
+// This is the FALLBACK base cwd when `bindPostflight()` isn't called with
+// a usable `ctx.cwd`. opencode 1.x sets `ctx.directory` to wherever the
+// CLI was launched from, which on a fresh clone is the repo root — but on
+// nested invocations or remote runners it can be anywhere. Without this
+// fallback the default checks fail uniformly with bun "No such file or
+// directory" (relative cwd) or GNU make's misleading "No rule to make
+// target" (when there's simply no Makefile in cwd).
+let cachedRepoRoot: string | null | undefined
+const isDir = (p: string): boolean => {
+  try {
+    return statSync(p).isDirectory()
+  } catch {
+    return false
+  }
+}
+const looksLikeAutopsyRoot = (dir: string): boolean =>
+  existsSync(`${dir}/Makefile`) &&
+  isDir(`${dir}/plugin`) &&
+  isDir(`${dir}/dashboard`) &&
+  isDir(`${dir}/service`)
+
+function findAutopsyRoot(): string | null {
+  if (cachedRepoRoot !== undefined) return cachedRepoRoot
+  let here: string
+  try {
+    here = dirname(fileURLToPath(import.meta.url))
+  } catch {
+    cachedRepoRoot = null
+    return null
+  }
+  // Walk up, but cap at 8 levels to keep the loop bounded.
+  let cur = here
+  for (let i = 0; i < 8; i++) {
+    if (looksLikeAutopsyRoot(cur)) {
+      cachedRepoRoot = cur
+      return cur
+    }
+    const parent = dirname(cur)
+    if (parent === cur) break
+    cur = parent
+  }
+  cachedRepoRoot = null
+  return null
+}
+
+/** The directory we should run postflight checks from. Prefers an explicit
+ *  bound cwd that already looks like the autopsy root; otherwise falls back
+ *  to the self-located repo root. Returns null when neither is usable. */
+export function resolvePostflightBaseCwd(): string | null {
+  const explicit = bound?.cwd
+  if (explicit && looksLikeAutopsyRoot(explicit)) return explicit
+  const located = findAutopsyRoot()
+  if (located) return located
+  // Last-resort: return the explicit cwd even if it doesn't look like the
+  // autopsy root. Custom suites (set via `setPostflightChecks`) may not
+  // need the repo-root markers, and bailing out entirely would silently
+  // disable postflight in those projects.
+  return explicit ?? null
+}
+
 export function bindPostflight(ctx: Ctx): void {
   bound = ctx
 }
 
-/** Test-only — clears bound context and any pending timers. */
+/** Test-only — clears bound context, repo-root cache, and any pending timers. */
 export function _resetPostflight(): void {
   bound = undefined
+  cachedRepoRoot = undefined
+  lastFailureSignature.clear()
   for (const t of timers.values()) clearTimeout(t)
   timers.clear()
   inflight.clear()
@@ -192,13 +263,41 @@ async function runOneCheck(
   baseCwd: string | undefined,
 ): Promise<CheckResult> {
   const start = Date.now()
-  const cwd = check.cwd
+  const rawCwd = check.cwd
     ? baseCwd
       ? `${baseCwd.replace(/\/+$/, "")}/${check.cwd}`
       : check.cwd
     : baseCwd
+  // Resolve to an absolute path so bun's `.cwd()` doesn't get confused by
+  // a relative path that happens to be valid against the wrong base.
+  const cwd = rawCwd ? resolvePath(rawCwd) : undefined
 
   const timeoutMs = check.timeoutMs ?? 60_000
+
+  // Pre-validate the cwd. Bun's `.cwd()` throws asynchronously when the
+  // path doesn't exist, with a generic "No such file or directory" message
+  // that hides which check was misconfigured. Catch it up front so the
+  // rejection reason explains exactly what went wrong, instead of leaving
+  // the user staring at GNU make's misleading "No rule to make target"
+  // (which 3.81 emits even when no Makefile exists in cwd at all).
+  if (cwd && !isDir(cwd)) {
+    return {
+      name: check.name,
+      cmd: check.cmd,
+      cwd,
+      passed: false,
+      exitCode: -1,
+      durationMs: Date.now() - start,
+      timedOut: false,
+      stdoutTail: "",
+      stderrTail: tail(
+        `postflight: cwd does not exist: ${cwd}\n` +
+          `(check "${check.name}" was configured with cwd="${check.cwd ?? ""}" relative to ` +
+          `${baseCwd ?? "<unset>"}). Either run opencode from the autopsy repo root, or ` +
+          `set AAG_POSTFLIGHT_DISABLED=1 to silence these checks in non-autopsy projects.`,
+      ),
+    }
+  }
 
   // Bun's `$` template literal escapes interpolated strings as a single
   // argv. Wrapping in `bash -c <cmd>` lets us use the cmd verbatim with
@@ -269,6 +368,30 @@ async function runOneCheck(
 
 const REJECTION_DETAIL_CHARS = 400
 
+// Per-session signature of the last filed postflight rejection. We use it
+// to suppress duplicate rejections when an agent retries a failing edit
+// multiple times without actually fixing anything — the dashboard and
+// graph already have the failure recorded; bumping the rejection counter
+// 18 times for the same root cause is just noise. The signature combines
+// the failed check names (sorted) with the truncated reason, so a *new*
+// failure (different check fails, or same check fails with a different
+// error) still files a fresh rejection.
+const lastFailureSignature = new Map<string, string>()
+
+const FAILURE_SIGNATURE_DETAIL_CHARS = 200
+function failureSignature(failed: CheckResult[]): string {
+  const ordered = [...failed].sort((a, b) => a.name.localeCompare(b.name))
+  return ordered
+    .map((r) => {
+      const detail = (r.stderrTail || r.stdoutTail || "").trim().slice(
+        0,
+        FAILURE_SIGNATURE_DETAIL_CHARS,
+      )
+      return `${r.name}|${r.exitCode}|${detail}`
+    })
+    .join("\n")
+}
+
 export function buildRejectionReason(failed: CheckResult[]): string {
   const header =
     failed.length === 1
@@ -298,6 +421,8 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
     const checks = getPostflightChecks()
     if (checks.length === 0) return []
 
+    const baseCwd = resolvePostflightBaseCwd() ?? undefined
+
     const ts = Date.now()
     enqueue({
       run_id: runId,
@@ -307,6 +432,7 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
       type: "aag.postflight.started",
       properties: {
         sessionID: runId,
+        baseCwd: baseCwd ?? null,
         checks: checks.map((c) => ({ name: c.name, cmd: c.cmd, cwd: c.cwd ?? null })),
       },
     })
@@ -320,9 +446,17 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
     // dominates wall-clock either way. If a project ever needs serial
     // execution we can add a `serial: true` flag per check.
     const results = await Promise.all(
-      checks.map((c) => runOneCheck(bound!.$, c, bound!.cwd)),
+      checks.map((c) => runOneCheck(bound!.$, c, baseCwd)),
     )
     const failed = results.filter((r) => !r.passed)
+
+    // Compute the failure signature BEFORE we emit the completed event so
+    // the timeline can mark a "repeated failure" run differently from a
+    // novel one. Signature is empty when everything passed (we still
+    // clear the cache so a follow-up regression files a fresh rejection).
+    const sig = failed.length > 0 ? failureSignature(failed) : ""
+    const prevSig = lastFailureSignature.get(runId) ?? null
+    const repeated = failed.length > 0 && sig === prevSig
 
     enqueue({
       run_id: runId,
@@ -333,6 +467,12 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
       properties: {
         sessionID: runId,
         passed: failed.length === 0,
+        // `repeated: true` means the SAME set of checks failed with the
+        // same exit codes and (truncated) error tail as the previous
+        // postflight on this run — i.e. the agent re-ran an edit without
+        // actually fixing anything. The dashboard collapses these on the
+        // outcome card so 18 retries don't render as 18 distinct entries.
+        repeated,
         results: results.map((r) => ({
           name: r.name,
           passed: r.passed,
@@ -349,7 +489,19 @@ export async function runPostflight(runId: string): Promise<CheckResult[]> {
     // rejection record.
     await flush()
 
-    if (failed.length === 0) return results
+    if (failed.length === 0) {
+      lastFailureSignature.delete(runId)
+      return results
+    }
+
+    // Skip the rejection POST when the failure is a verbatim repeat of
+    // what we already filed. The graph and dashboard already have this
+    // failure on record; filing it again would inflate `rejection_count`
+    // and spam `RejectionList` with N copies of the same entry.
+    if (repeated) {
+      return results
+    }
+    lastFailureSignature.set(runId, sig)
 
     const reason = buildRejectionReason(failed)
     const symptoms = failed.map((r) => `${r.name}_failed`).join(",")
