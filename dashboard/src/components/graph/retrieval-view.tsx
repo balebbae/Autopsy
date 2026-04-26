@@ -268,10 +268,17 @@ function CandidatesStrip({ data }: { data: PreflightTraceResponse }) {
           0,
           Math.min(1, 1 - c.distance / trace.similarity_threshold),
         )
-        const tone =
-          c.status === "rejected"
-            ? "border-rose-500/40 bg-rose-500/5"
-            : "border-emerald-500/40 bg-emerald-500/5"
+        // Color by retrieval BUCKET, not raw status, so an active run
+        // mid-recovery (status='active' + rejection_count>0 → bucket=
+        // 'failure') still renders as a failure candidate. Older trace
+        // payloads without `bucket` fall back to status, preserving the
+        // original behavior for runs analyzed before the schema bump.
+        const isFailure = c.bucket
+          ? c.bucket === "failure"
+          : c.status === "rejected"
+        const tone = isFailure
+          ? "border-rose-500/40 bg-rose-500/5"
+          : "border-emerald-500/40 bg-emerald-500/5"
         const dimmed = !c.in_threshold ? "opacity-40" : ""
         return (
           <Card
@@ -287,10 +294,13 @@ function CandidatesStrip({ data }: { data: PreflightTraceResponse }) {
                 variant="outline"
                 className={cn(
                   "text-[9px] uppercase tracking-wider px-1.5 py-0",
-                  c.status === "rejected"
+                  isFailure
                     ? "border-rose-500/50 text-rose-600 dark:text-rose-400"
                     : "border-emerald-500/50 text-emerald-600 dark:text-emerald-400",
                 )}
+                // Surface the raw status on hover so users can tell an
+                // explicitly-rejected run from an active-with-rejections one.
+                title={c.bucket ? `${c.status} (bucket: ${c.bucket})` : c.status}
               >
                 {c.status}
               </Badge>
@@ -315,7 +325,7 @@ function CandidatesStrip({ data }: { data: PreflightTraceResponse }) {
                 <div
                   className={cn(
                     "h-full rounded-full",
-                    c.status === "rejected" ? "bg-rose-500/70" : "bg-emerald-500/70",
+                    isFailure ? "bg-rose-500/70" : "bg-emerald-500/70",
                   )}
                   style={{ width: `${pct * 100}%` }}
                 />

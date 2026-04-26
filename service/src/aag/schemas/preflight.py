@@ -41,7 +41,17 @@ class AnnCandidate(BaseModel):
 
     run_id: str
     distance: float
-    status: Literal["rejected", "approved"]
+    # Raw run status. Includes ``active``/``aborted`` now that the modern
+    # rejection flow keeps ``status='active'`` while bumping
+    # ``rejection_count``. Use ``bucket`` to decide retrieval semantics;
+    # ``status`` is for display so users see "active w/ 4 rejections" vs
+    # "explicitly rejected".
+    status: Literal["rejected", "approved", "active", "aborted"]
+    # Effective retrieval bucket. ``failure`` for runs with one or more
+    # filed rejections OR ``status='rejected'``; ``approved`` for clean
+    # approvals; ``none`` for the (rare) case where the SQL filter let
+    # something through that the bucket case couldn't classify.
+    bucket: Literal["failure", "approved", "none"] = "none"
     project: str | None = None
     age_days: float
     # True iff the candidate cleared the SIMILARITY_THRESHOLD and was

@@ -143,7 +143,17 @@ export type PreflightResponse = {
 export type AnnCandidate = {
   run_id: string
   distance: number
-  status: "rejected" | "approved"
+  // Raw run status. Now includes `active`/`aborted` because the modern
+  // rejection flow keeps `status='active'` while bumping
+  // `rejection_count` — preflight retrieval treats those as failure
+  // candidates too via `bucket`. The dashboard should display the raw
+  // status verbatim and use `bucket` for retrieval-bucket coloring.
+  status: "rejected" | "approved" | "active" | "aborted"
+  // Effective retrieval bucket. `failure` covers any run with one or
+  // more filed rejections OR `status='rejected'`; `approved` is reserved
+  // for clean approvals; `none` means the SQL filter let it through but
+  // it doesn't contribute to scoring.
+  bucket?: "failure" | "approved" | "none"
   project?: string | null
   age_days: number
   in_threshold: boolean

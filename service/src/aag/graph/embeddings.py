@@ -39,29 +39,66 @@ def _stub_embed(text: str, dim: int) -> list[float]:
 _GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 
 
+def _truncate_to_dim(vec: list[float], dim: int) -> list[float]:
+    """Defensive truncation. ``gemini-embedding-001`` is a Matryoshka
+    Representation Learning (MRL) model, so the leading ``dim`` components
+    are still meaningful when the API returns more than we asked for.
+
+    We pass ``output_dimensionality`` to the SDK so this normally never
+    triggers, but if a future SDK / API change ignores the parameter, the
+    pgvector(768) column would otherwise raise ``expected 768 dimensions,
+    not 3072`` and silently drop every embedding write — which is exactly
+    the regression that broke preflight retrieval before this fix. Better
+    to truncate than to lose the row entirely.
+    """
+    if len(vec) > dim:
+        return vec[:dim]
+    return vec
+
+
 async def _gemini_embed(texts: list[str], settings: Settings) -> list[float]:
-    """Embed a single text via Google ``gemini-embedding-001`` (free-tier, 768-d)."""
+    """Embed a single text via Google ``gemini-embedding-001``.
+
+    The model returns 3072-d by default; we ask for ``settings.embed_dim``
+    (768) via ``output_dimensionality`` so the result fits in the
+    ``embeddings.vector(768)`` column. Truncation uses MRL, which keeps
+    the leading dimensions semantically meaningful.
+
+    NOTE: ``models/text-embedding-004`` (the original 768-d native model)
+    was removed from the v1beta API, which is why we MRL-truncate the
+    newer model rather than swapping back. Don't "simplify" by dropping
+    ``output_dimensionality`` — the schema mismatch breaks every write.
+    """
     import google.generativeai as genai  # type: ignore
 
     genai.configure(api_key=settings.gemini_api_key)
-    result = genai.embed_content(model=_GEMINI_EMBED_MODEL, content=texts[0])
-    return [float(x) for x in result["embedding"]]
+    result = genai.embed_content(
+        model=_GEMINI_EMBED_MODEL,
+        content=texts[0],
+        output_dimensionality=settings.embed_dim,
+    )
+    return _truncate_to_dim([float(x) for x in result["embedding"]], settings.embed_dim)
 
 
 async def _gemini_embed_batch(texts: list[str], settings: Settings) -> list[list[float]]:
     """Batch-embed via Google ``gemini-embedding-001``.
 
     ``embed_content`` accepts a list of strings and returns a list of
-    vectors in one round-trip (free tier: 1 500 req/min).
+    vectors in one round-trip (free tier: 1 500 req/min). Same MRL
+    truncation as the single-text path.
     """
     import google.generativeai as genai  # type: ignore
 
     genai.configure(api_key=settings.gemini_api_key)
-    result = genai.embed_content(model=_GEMINI_EMBED_MODEL, content=texts)
+    result = genai.embed_content(
+        model=_GEMINI_EMBED_MODEL,
+        content=texts,
+        output_dimensionality=settings.embed_dim,
+    )
     vecs = result["embedding"]
     if texts and not isinstance(vecs[0], list):
-        return [[float(x) for x in vecs]]
-    return [[float(x) for x in v] for v in vecs]
+        return [_truncate_to_dim([float(x) for x in vecs], settings.embed_dim)]
+    return [_truncate_to_dim([float(x) for x in v], settings.embed_dim) for v in vecs]
 
 
 async def embed(text: str) -> list[float]:

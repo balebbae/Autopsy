@@ -80,8 +80,28 @@ def _vec_literal(vec: list[float]) -> str:
 # back to a single run_id. ``patch`` entity_ids are formatted ``<run_id>:<path>``
 # (see ``embeddings.write_for``); we strip the suffix with split_part(...,1).
 # Then aggregate per-run by min distance so a run that matches via two
-# different patches still appears only once. Filter by status / project on
-# the resolved run row.
+# different patches still appears only once. Filter by *effective bucket* /
+# project on the resolved run row.
+#
+# Effective bucket (``ann_bucket`` column) decouples retrieval from
+# ``runs.status``:
+#
+#   - ``failure`` — run has at least one filed Rejection (postflight,
+#     frustration, permission-deny) OR ``status='rejected'``. The modern
+#     flow keeps ``status='active'`` while bumping ``rejection_count``;
+#     filtering on ``status='rejected'`` alone made every active-with-
+#     rejections run invisible to preflight retrieval. Aborted runs that
+#     accumulated rejections before crashing are also kept — the user
+#     never explicitly rejected, but the rejections themselves are real
+#     failure signal.
+#   - ``approved`` — clean approval (``status='approved'`` AND no
+#     rejections). Used as counter-evidence in the score-dampening step.
+#
+# Other states (``active`` with no rejections, ``aborted`` with no
+# rejections) are excluded — they carry no signal worth retrieving.
+#
+# Self-match guard: if ``:exclude_run_id`` is set, the requesting run is
+# omitted so a run mid-recovery doesn't preflight against itself.
 _ANN_SQL = text(
     """
     WITH candidates AS (
@@ -106,12 +126,23 @@ _ANN_SQL = text(
         pr.run_id AS run_id,
         pr.dist AS dist,
         r.status AS status,
+        CASE
+            WHEN r.status = 'rejected' OR COALESCE(r.rejection_count, 0) > 0
+                THEN 'failure'
+            WHEN r.status = 'approved' AND COALESCE(r.rejection_count, 0) = 0
+                THEN 'approved'
+            ELSE 'none'
+        END AS ann_bucket,
         r.project AS project,
         EXTRACT(EPOCH FROM (NOW() - r.created_at)) / 86400.0 AS age_days
     FROM per_run pr
     JOIN runs r ON r.run_id = pr.run_id
-    WHERE r.status IN ('rejected', 'approved')
+    WHERE (
+        r.status IN ('rejected', 'approved')
+        OR COALESCE(r.rejection_count, 0) > 0
+    )
       AND (CAST(:project AS TEXT) IS NULL OR r.project = :project)
+      AND (CAST(:exclude_run_id AS TEXT) IS NULL OR r.run_id != :exclude_run_id)
     ORDER BY pr.dist
     LIMIT :k
     """
@@ -272,19 +303,25 @@ async def preflight(session: AsyncSession, req: PreflightRequest) -> PreflightRe
                 "k_inner": K * _ANN_INNER_LIMIT_FACTOR,
                 "entity_types": _ANN_ENTITY_TYPES,
                 "project": req.project,
+                "exclude_run_id": req.run_id,
             },
         )
     ).all()
 
+    # Bucket by `ann_bucket` (computed in SQL) instead of raw `status` so a
+    # run that filed rejections without ever being explicitly /outcome'd
+    # rejected still counts as a failure — that's the common case for
+    # postflight failures and frustration triggers, which keep status='active'.
     failed: list[tuple[str, float]] = []
     approved_count = 0
     for row in rows:
         dist = float(row.dist)
         if dist >= SIMILARITY_THRESHOLD:
             continue
-        if row.status == "rejected":
+        bucket = getattr(row, "ann_bucket", None)
+        if bucket == "failure":
             failed.append((row.run_id, dist))
-        elif row.status == "approved":
+        elif bucket == "approved":
             approved_count += 1
 
     if not failed:
@@ -588,6 +625,7 @@ async def preflight_trace(  # noqa: PLR0915
                 "k_inner": K * _ANN_INNER_LIMIT_FACTOR,
                 "entity_types": _ANN_ENTITY_TYPES,
                 "project": req.project,
+                "exclude_run_id": req.run_id,
             },
         )
     ).all()
@@ -597,16 +635,18 @@ async def preflight_trace(  # noqa: PLR0915
     for row in rows:
         dist = float(row.dist)
         in_threshold = dist < SIMILARITY_THRESHOLD
+        bucket = getattr(row, "ann_bucket", None) or "none"
         if in_threshold:
-            if row.status == "rejected":
+            if bucket == "failure":
                 failed_run_ids.append(row.run_id)
-            elif row.status == "approved":
+            elif bucket == "approved":
                 approved_count += 1
         trace.candidates.append(
             AnnCandidate(
                 run_id=row.run_id,
                 distance=dist,
                 status=row.status,
+                bucket=bucket,
                 project=row.project,
                 age_days=float(row.age_days),
                 in_threshold=in_threshold,
