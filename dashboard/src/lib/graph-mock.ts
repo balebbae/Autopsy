@@ -109,15 +109,17 @@ export function buildMockGraph(): { nodes: GraphNode[]; edges: GraphEdge[] } {
     evidence_run_id: runId,
   })
 
+  // Edge vocabulary mirrors service/src/aag/graph/writer.py exactly so the
+  // ?mock=1 demo renders identically to live data.
   const edges: GraphEdge[] = [
-    e("e1", `run:${runId}`, "task:add-preferred-name", "EXECUTED"),
-    e("e2", `run:${runId}`, "file:src/profile/profile.service.ts", "EDITED", 0.95),
-    e("e3", `run:${runId}`, "file:src/profile/user.serializer.ts", "EDITED", 0.95),
-    e("e4", "file:src/profile/profile.service.ts", "component:profile-service", "PART_OF"),
-    e("e5", "file:src/profile/user.serializer.ts", "component:user-serializer", "PART_OF"),
-    e("e6", `run:${runId}`, "change:add-field", "MATCHED", 0.7),
-    e("e7", `run:${runId}`, "symptom:missed-migration", "EXHIBITED", 0.9),
-    e("e8", `run:${runId}`, "symptom:no-frontend-types", "EXHIBITED", 0.85),
+    e("e1", `run:${runId}`, "task:add-preferred-name", "ATTEMPTED", 1.0),
+    e("e2", `run:${runId}`, "file:src/profile/profile.service.ts", "TOUCHED", 1.0),
+    e("e3", `run:${runId}`, "file:src/profile/user.serializer.ts", "TOUCHED", 1.0),
+    e("e4", "file:src/profile/profile.service.ts", "component:profile-service", "BELONGS_TO", 1.0),
+    e("e5", "file:src/profile/user.serializer.ts", "component:user-serializer", "BELONGS_TO", 1.0),
+    e("e6", `run:${runId}`, "change:add-field", "HAD_CHANGE_PATTERN", 1.0),
+    e("e7", `run:${runId}`, "symptom:missed-migration", "EMITTED_SYMPTOM", 0.9),
+    e("e8", `run:${runId}`, "symptom:no-frontend-types", "EMITTED_SYMPTOM", 0.85),
     e(
       "e9",
       "symptom:missed-migration",
@@ -136,11 +138,10 @@ export function buildMockGraph(): { nodes: GraphNode[]; edges: GraphEdge[] } {
       "e11",
       "failure:incomplete-schema-change",
       "fix:rerun-codegen",
-      "FIXED_BY",
+      "RESOLVED_BY",
       0.85,
     ),
     e("e12", `run:${runId}`, "outcome:rejected", "RESULTED_IN", 1.0),
-    e("e13", "task:add-preferred-name", "change:add-field", "TYPE_OF", 0.6),
   ]
 
   return { nodes, edges }

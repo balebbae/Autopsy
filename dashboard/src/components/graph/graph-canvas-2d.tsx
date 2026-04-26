@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import dynamic from "next/dynamic"
+import { useTheme } from "next-themes"
 import type { ForceGraphMethods } from "react-force-graph-2d"
 // d3-force-3d is the same force module react-force-graph-2d uses internally.
 // We use it to register a collision force so rectangular cards don't overlap.
@@ -273,6 +274,38 @@ export function GraphCanvas2D({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [dim, setDim] = React.useState({ w: 0, h: 0 })
 
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme !== "light"
+  const palette = React.useMemo(
+    () =>
+      isDark
+        ? {
+            canvasBg: "#0a0e1a",
+            cardBg: "#0f172a",
+            cardBgSelected: "#1e293b",
+            cardBorder: "#334155",
+            cardName: "#f1f5f9",
+            cardId: "#64748b",
+            labelBg: "#0f172a",
+            labelText: "#f1f5f9",
+            edgeFallback: "#475569",
+            dimEdge: "#334155",
+          }
+        : {
+            canvasBg: "#f8fafc",
+            cardBg: "#ffffff",
+            cardBgSelected: "#f1f5f9",
+            cardBorder: "#cbd5e1",
+            cardName: "#0f172a",
+            cardId: "#64748b",
+            labelBg: "#ffffff",
+            labelText: "#0f172a",
+            edgeFallback: "#94a3b8",
+            dimEdge: "#cbd5e1",
+          },
+    [isDark],
+  )
+
   // ForceGraph2D is loaded via next/dynamic, so its imperative API arrives
   // asynchronously. Mirror the ref into state so the force-configuration
   // effect can re-run the moment the API becomes available. Without this,
@@ -488,7 +521,7 @@ export function GraphCanvas2D({
       ctx.shadowOffsetY = 2
 
       // Card background
-      ctx.fillStyle = isSelected ? "#1e293b" : "#0f172a"
+      ctx.fillStyle = isSelected ? palette.cardBgSelected : palette.cardBg
       ctx.beginPath()
       ctx.roundRect(x - cardWidth / 2, y - cardHeight / 2, cardWidth, cardHeight, cornerRadius)
       ctx.fill()
@@ -499,7 +532,7 @@ export function GraphCanvas2D({
       ctx.shadowOffsetY = 0
 
       // Border
-      ctx.strokeStyle = isSelected ? style.color : isHovered ? style.color : "#334155"
+      ctx.strokeStyle = isSelected ? style.color : isHovered ? style.color : palette.cardBorder
       ctx.lineWidth = isSelected ? 2 : isHovered ? 1.5 : 1
       ctx.stroke()
 
@@ -544,7 +577,7 @@ export function GraphCanvas2D({
       const nameY = y - cardHeight / 2 + 22
       const nameFontSize = isFailureMode ? 11 : isMinor ? 9 : 10
       ctx.font = `600 ${nameFontSize}px Inter, system-ui, sans-serif`
-      ctx.fillStyle = "#f1f5f9"
+      ctx.fillStyle = palette.cardName
       ctx.textAlign = "left"
       ctx.textBaseline = "top"
 
@@ -561,14 +594,14 @@ export function GraphCanvas2D({
       if (cardHeight >= 48) {
         const infoY = nameY + nameFontSize + 4
         ctx.font = `400 ${8}px ui-monospace, monospace`
-        ctx.fillStyle = "#64748b"
+        ctx.fillStyle = palette.cardId
         const idSnippet = n.id.length > 20 ? n.id.slice(0, 20) + "…" : n.id
         ctx.fillText(idSnippet, x - cardWidth / 2 + accentWidth + 6, infoY)
       }
 
       ctx.restore()
     },
-    [selectedId, hoveredId, matchingIds]
+    [selectedId, hoveredId, matchingIds, palette]
   )
 
   const linkCanvasObject = React.useCallback(
@@ -585,19 +618,8 @@ export function GraphCanvas2D({
         !matchingIds.has(source.id) &&
         !matchingIds.has(target.id)
 
-      // Edge color based on type
-      const edgeColors: Record<string, string> = {
-        INDICATES: "#ef4444",    // Red - symptoms indicate failures
-        FIXED_BY: "#34d399",     // Green - fixes
-        EXHIBITED: "#fb923c",    // Orange - symptoms
-        RESULTED_IN: "#64748b",  // Gray - outcomes
-        EXECUTED: "#38bdf8",     // Blue - runs
-        EDITED: "#a78bfa",       // Purple - edits
-        PART_OF: "#94a3b8",      // Light gray - structure
-        MATCHED: "#f472b6",      // Pink - patterns
-        TYPE_OF: "#fbbf24",      // Yellow - types
-      }
-      const edgeColor = edgeColors[l.edgeType] || "#475569"
+      const eStyle = edgeStyle(l.edgeType)
+      const edgeColor = eStyle.color
       
       // Line thickness based on confidence (1-3px)
       const confidence = l.confidence ?? 0.5
@@ -627,13 +649,12 @@ export function GraphCanvas2D({
       const endY = target.y - targetOffsetY
 
       // Line style - colored by type, thickness by confidence
-      const displayColor = isConnectedToSelected ? edgeColor : isDimmed ? "#334155" : edgeColor + "90"
+      const displayColor = isConnectedToSelected ? edgeColor : isDimmed ? palette.dimEdge : edgeColor + "90"
       ctx.strokeStyle = displayColor
       ctx.lineWidth = isConnectedToSelected ? baseThickness + 0.5 : baseThickness
       
       // Dashed for structural edges, solid for causal
-      const isDashed = l.edgeType === "PART_OF" || l.edgeType === "TYPE_OF"
-      if (isDashed) {
+      if (eStyle.dashed) {
         ctx.setLineDash([5, 4])
       }
 
@@ -661,15 +682,20 @@ export function GraphCanvas2D({
       ctx.closePath()
       ctx.fill()
 
-      // Show confidence label only on hover/selection or high confidence
-      const showLabel = isConnectedToSelected || (confidence >= 0.85 && !isDimmed)
-      if (typeof l.confidence === "number" && showLabel) {
+      // Label: show edge type (+ confidence) when selected; show just type for
+      // high-confidence causal edges so the graph reads without interaction.
+      const showLabel =
+        isConnectedToSelected || (confidence >= 0.85 && !isDimmed)
+      if (showLabel) {
         const midX = (startX + endX) / 2
         const midY = (startY + endY) / 2
-        const confText = `${Math.round(l.confidence * 100)}%`
-        const fontSize = 11
+        const confText =
+          typeof l.confidence === "number" && isConnectedToSelected
+            ? `${eStyle.label} · ${Math.round(l.confidence * 100)}%`
+            : eStyle.label
+        const fontSize = 10
         const padding = 6
-        
+
         ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
         ctx.textAlign = "center"
         ctx.textBaseline = "middle"
@@ -680,7 +706,7 @@ export function GraphCanvas2D({
         const bgHeight = fontSize + padding
 
         // Background pill
-        ctx.fillStyle = "#0f172a"
+        ctx.fillStyle = palette.labelBg
         ctx.beginPath()
         ctx.roundRect(
           midX - bgWidth / 2,
@@ -697,13 +723,13 @@ export function GraphCanvas2D({
         ctx.stroke()
 
         // Text with better color
-        ctx.fillStyle = "#f1f5f9"
+        ctx.fillStyle = palette.labelText
         ctx.fillText(confText, midX, midY)
       }
 
       ctx.restore()
     },
-    [selectedId, matchingIds]
+    [selectedId, matchingIds, palette]
   )
 
   const nodePointerAreaPaint = React.useCallback(
@@ -732,7 +758,7 @@ export function GraphCanvas2D({
         width={dim.w}
         height={dim.h}
         graphData={graphData}
-        backgroundColor="#0a0e1a"
+        backgroundColor={palette.canvasBg}
         dagMode={dagMode ?? undefined}
         // dag level distance has to clear the longest card axis at that
         // orientation: ~150px wide for LR/RL, ~52px tall for TD/BU.

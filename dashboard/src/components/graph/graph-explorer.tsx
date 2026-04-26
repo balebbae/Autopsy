@@ -40,6 +40,7 @@ import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/primitives/empty-state"
 import { NodeDrawer } from "./node-drawer"
 import { EdgeCreateModal } from "./edge-create-modal"
+import { Legend } from "./legend"
 import { MiniMap } from "./mini-map"
 import {
   GraphCanvas2D,
@@ -604,6 +605,10 @@ export function GraphExplorer() {
             {/* Mini-map */}
             <div className="absolute bottom-4 right-4 z-10">
               <MiniMap fgRef={fgRef} positionedNodesRef={positionedNodesRef} />
+            </div>
+            {/* Legend */}
+            <div className="absolute bottom-4 left-4 z-10 max-h-[calc(100vh-12rem)] overflow-y-auto">
+              <Legend />
             </div>
           </>
         )}
