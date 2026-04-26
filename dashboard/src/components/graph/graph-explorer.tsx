@@ -15,12 +15,14 @@ import {
   RefreshCw,
   Search,
   Share2,
+  Sparkles,
   Upload,
   Wand2,
   X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react"
+import { RetrievalView } from "./retrieval-view"
 import type { ForceGraphMethods } from "react-force-graph-2d"
 
 import {
@@ -118,10 +120,10 @@ function filterByRun(
   return { nodes: runNodes, edges: runEdges }
 }
 
-type ViewKey = "force" | "timeline" | "branched"
+type ViewKey = "force" | "timeline" | "branched" | "retrieval"
 
 function parseView(v: string | null): ViewKey {
-  if (v === "timeline" || v === "branched") return v
+  if (v === "timeline" || v === "branched" || v === "retrieval") return v
   return "force"
 }
 
@@ -141,7 +143,19 @@ export function GraphExplorer() {
   const params = useSearchParams()
   const router = useRouter()
   const runFilter = params?.get("run") ?? ""
+  const taskParam = params?.get("task") ?? ""
   const view = parseView(params?.get("view") ?? null)
+
+  const setTaskParam = React.useCallback(
+    (task: string) => {
+      const next = new URLSearchParams(params?.toString() ?? "")
+      if (task) next.set("task", task)
+      else next.delete("task")
+      const qs = next.toString()
+      router.replace(qs ? `/graph?${qs}` : "/graph", { scroll: false })
+    },
+    [params, router],
+  )
 
   const { data, isLoading, mutate } = useSWR(
     ["graph", apiBaseUrl],
@@ -178,9 +192,12 @@ export function GraphExplorer() {
   )
 
   // Fetch full run detail (events + rejections + preflight) for timeline /
-  // branched views. Skip for the force view to avoid an unnecessary request.
+  // branched views. Skip for force/retrieval (force uses graph nodes/edges,
+  // retrieval is task-scoped not run-scoped).
   const runDetailKey: [string, string] | null =
-    view !== "force" && runFilter ? ["runDetail", runFilter] : null
+    (view === "timeline" || view === "branched") && runFilter
+      ? ["runDetail", runFilter]
+      : null
   const { data: runDetailData, isLoading: runDetailLoading } = useSWR(
     runDetailKey,
     runDetailFetcher,
@@ -489,12 +506,21 @@ export function GraphExplorer() {
               icon={<GitBranch className="h-3.5 w-3.5" />}
               label="Branched"
             />
+            <ViewToggleButton
+              active={view === "retrieval"}
+              onClick={() => setView("retrieval")}
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+              label="Retrieval"
+            />
           </Card>
           {(() => {
-            // Run picker stands alone so it stays visible across all three views.
-            // For the force view we keep the original behavior (only show runs
-            // with graph evidence). For timeline / branched, show every run
-            // since those views don't depend on the graph data being populated.
+            // Run picker stands alone so it stays visible across the run-scoped
+            // views. Retrieval is task-scoped (not tied to a single run) so
+            // the picker hides there. For the force view we keep the original
+            // behavior (only show runs with graph evidence). For timeline /
+            // branched, show every run since those views don't depend on the
+            // graph data being populated.
+            if (view === "retrieval") return null
             const allRuns = runsData ?? []
             const selectableRuns =
               view === "force"
@@ -745,7 +771,9 @@ export function GraphExplorer() {
 
       {/* Canvas */}
       <div className={cn("flex-1 relative", view !== "force" && "pt-20")}>
-        {view !== "force" ? (
+        {view === "retrieval" ? (
+          <RetrievalView initialTask={taskParam} onTaskChange={setTaskParam} />
+        ) : view !== "force" ? (
           <RunViewSwitch
             view={view}
             run={effectiveRun}

@@ -222,3 +222,111 @@ def test_preflight_request_validation(client: TestClient) -> None:
     """Missing required ``task`` field → 422 from FastAPI/Pydantic."""
     resp = client.post("/v1/preflight", json={})
     assert resp.status_code == 422
+
+
+def test_preflight_trace_empty_task(client: TestClient) -> None:
+    """Empty task short-circuits but still returns a typed trace shell."""
+    resp = client.post("/v1/preflight/trace", json={"task": ""})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["response"]["risk_level"] == "none"
+    trace = body["trace"]
+    assert trace["candidates"] == []
+    assert trace["edges"] == []
+    assert trace["aggregated"] == []
+    assert trace["embed_provider"] in {"stub", "local", "openai"}
+    assert trace["vector_dim"] in {384, 1536}
+    assert trace["max_hop_depth"] == 3
+    assert 0.0 < trace["similarity_threshold"] <= 2.0
+    assert trace["dampening_factor"] == 1.0
+
+
+def test_preflight_trace_finds_seeded_run(
+    client: TestClient,
+    seeded_run_id: str,
+) -> None:
+    """End-to-end: trace surfaces the seeded run as an ANN candidate, the
+    typed graph walk visits FailureMode + FixPattern nodes, and the
+    aggregation matches the wire response.
+    """
+    resp = client.post(
+        "/v1/preflight/trace",
+        json={"task": SCHEMA_TASK, "project": "autopsy-tests"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    response = body["response"]
+    trace = body["trace"]
+
+    # Wire response identical to the non-trace endpoint shape.
+    assert response["risk_level"] != "none"
+    assert seeded_run_id in response["similar_runs"]
+    assert "incomplete_schema_change" in response["missing_followups"]
+
+    # ANN stage: candidate row for the seeded run, in-threshold.
+    cand_run_ids = [c["run_id"] for c in trace["candidates"]]
+    assert seeded_run_id in cand_run_ids
+    seeded_cand = next(c for c in trace["candidates"] if c["run_id"] == seeded_run_id)
+    assert seeded_cand["status"] == "rejected"
+    assert seeded_cand["in_threshold"] is True
+    assert 0.0 <= seeded_cand["distance"] < trace["similarity_threshold"]
+
+    # Roots include the seeded run; trace walked at least one edge.
+    assert seeded_run_id in trace["rejected_roots"]
+    assert len(trace["edges"]) > 0
+
+    # Each edge has the structural shape the dashboard expects. The walk
+    # can visit any node type the writer emits (File, Symptom, FailureMode,
+    # FixPattern, ChangePattern, Component, ...); only the aggregation
+    # restricts to the three narrative types.
+    for edge in trace["edges"]:
+        assert isinstance(edge["target_type"], str) and edge["target_type"]
+        assert isinstance(edge["target_name"], str) and edge["target_name"]
+        assert 1 <= edge["depth"] <= trace["max_hop_depth"]
+        assert 0.0 <= edge["confidence"] <= 1.0
+        assert edge["decayed_confidence"] >= 0.0
+        assert edge["age_days"] >= 0.0
+
+    # The walk should reach at least one FailureMode (depth 2) — the
+    # whole point of the pipeline.
+    fm_edges = [e for e in trace["edges"] if e["target_type"] == "FailureMode"]
+    assert len(fm_edges) > 0
+
+    # Aggregation includes a FailureMode (the seed's classification).
+    fm_names = [a["name"] for a in trace["aggregated"] if a["type"] == "FailureMode"]
+    assert "incomplete_schema_change" in fm_names
+
+    # Aggregated final scores agree with the wire response's
+    # missing_followups (top FailureModes by score).
+    fm_sorted = sorted(
+        (a for a in trace["aggregated"] if a["type"] == "FailureMode"),
+        key=lambda a: a["final_score"],
+        reverse=True,
+    )
+    assert fm_sorted[0]["name"] == response["missing_followups"][0]
+
+
+def test_preflight_trace_no_match(client: TestClient, seeded_run_id: str) -> None:
+    """Wildly unrelated task → empty trace (no roots, no edges) but
+    well-typed shell. Confirms graceful no-match path.
+    """
+    unrelated = (
+        "completely unrelated subject about astronomy and the orbital "
+        "mechanics of distant binary systems"
+    )
+    resp = client.post(
+        "/v1/preflight/trace",
+        json={"task": unrelated, "project": "autopsy-tests"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    trace = body["trace"]
+    # Either no candidates cleared the threshold OR none were rejected.
+    in_thresh_rejected = [
+        c for c in trace["candidates"] if c["in_threshold"] and c["status"] == "rejected"
+    ]
+    assert in_thresh_rejected == []
+    assert trace["rejected_roots"] == []
+    assert trace["edges"] == []
+    assert trace["aggregated"] == []
