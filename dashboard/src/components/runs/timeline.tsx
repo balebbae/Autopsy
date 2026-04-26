@@ -89,7 +89,10 @@ export function RunTimeline({
       }
       collapsed.push({ event: e, repeat: 1, lastTs: e.ts })
     }
-    return collapsed
+    return collapsed.map((c) => ({
+      ...c,
+      repeat: c.repeat > 1 ? Math.max(1, Math.floor(c.repeat / 2)) : 1,
+    }))
   }, [initial, streamed])
 
   const [selected, setSelected] = React.useState<Mergeable | null>(null)
