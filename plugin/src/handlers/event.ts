@@ -5,9 +5,12 @@ import type { EventIn } from "../types.ts"
 
 // Bus events that add no autopsy signal but flood the timeline / DB.
 // Drop at the source so they never hit the network.
+//
+// session.updated is conditionally allowed: when it carries an updated
+// info.title (opencode auto-generates a meaningful title after the first
+// turn), we forward it so the service can refresh runs.task. Otherwise drop.
 const NOISY_TYPES = new Set([
   "session.status",
-  "session.updated",
   "message.part.updated",
   "message.part.removed",
   "message.part.delta",
@@ -82,11 +85,59 @@ const markSessionFired = (runId: string): boolean => {
   return true
 }
 
+// Lightweight typing for the slice of the opencode SDK client we use here.
+// Avoids importing the full SDK types into the plugin build graph.
+type OpencodeClientLike = {
+  session?: {
+    get?: (opts: { path: { id: string } }) => Promise<unknown> | unknown
+  }
+}
+
+const isPlaceholderTitle = (title: string): boolean =>
+  !title.trim() || title.trim().toLowerCase().startsWith("new session")
+
+// Track sessions where we already pushed a forced title so we don't spam.
+const forcedTitleSent = new Set<string>()
+
+// Best-effort: fetch the current opencode session title and POST it as
+// autopsy.task.set with force=true. Called on session.idle so we pick up
+// opencode's auto-generated summary even if it never re-emitted session.updated.
+const refreshSessionTitle = async (
+  runId: string,
+  client: OpencodeClientLike | undefined,
+  ctx: { project?: { id?: string }; worktree?: string },
+): Promise<void> => {
+  if (!client?.session?.get) return
+  if (forcedTitleSent.has(runId)) return
+  try {
+    const result: any = await client.session.get({ path: { id: runId } })
+    // SDK returns either the data directly or wraps it under { data }.
+    const sessionInfo = result?.data ?? result
+    const title = typeof sessionInfo?.title === "string" ? sessionInfo.title : ""
+    if (!title || isPlaceholderTitle(title)) return
+    forcedTitleSent.add(runId)
+    enqueue({
+      run_id: runId,
+      project: ctx.project?.id,
+      worktree: ctx.worktree,
+      ts: Date.now(),
+      type: "autopsy.task.set",
+      properties: { task: title, source: "session.title", force: true },
+    })
+  } catch {
+    // Best-effort only; never block the bus.
+  }
+}
+
 // Entry for the `event` hook. opencode 1.x wraps the bus event in `{ event }`.
 // We never block on the network — fire-and-forget through the batcher.
 export const onEvent = async (
   input: { event: { type: string; properties: Record<string, unknown> } },
-  ctx: { project?: { id?: string }; worktree?: string },
+  ctx: {
+    project?: { id?: string }
+    worktree?: string
+    client?: OpencodeClientLike
+  },
 ) => {
   const e = input.event
   const props = (e.properties ?? {}) as {
@@ -99,6 +150,14 @@ export const onEvent = async (
   if (!runId) return
 
   // --- Side-effects that must run BEFORE the noise filter ---
+
+  // On session.idle (turn complete), refresh the run's display name from
+  // opencode's session info. opencode auto-generates a meaningful title
+  // after the first turn; this picks it up even if session.updated wasn't
+  // emitted. Fire-and-forget; never blocks event delivery.
+  if (e.type === "session.idle") {
+    void refreshSessionTitle(runId, ctx.client, ctx)
+  }
 
   if (e.type === "permission.replied" && props.reply === "reject") {
     // Dedupe by permissionID *before* enqueueing so re-emitted events
@@ -197,6 +256,13 @@ export const onEvent = async (
     })
     if (text) setLatestUserMessage(text)
     return
+  } else if (e.type === "session.updated") {
+    // Only forward when it carries a session info with a title — that's
+    // when opencode is communicating an auto-generated session title we want
+    // to surface as runs.task. Drop pure status updates.
+    const info = (e.properties as { info?: { title?: unknown } })?.info
+    const title = typeof info?.title === "string" ? info.title.trim() : ""
+    if (!title) return
   } else if (NOISY_TYPES.has(e.type)) {
     return
   }

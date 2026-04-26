@@ -21,24 +21,97 @@ SESSION_UPDATED = "session.updated"
 SESSION_IDLE = "session.idle"
 SESSION_DIFF = "session.diff"
 TOOL_AFTER = "tool.execute.after"
+PERMISSION_REPLIED = "permission.replied"
+MESSAGE_PART_UPDATED = "message.part.updated"
+# Plugin-emitted synthetic event for explicitly setting the run's display name.
+# Properties: { task: str, force?: bool }
+AUTOPSY_TASK_SET = "autopsy.task.set"
+
+# Max length of a derived task name from a user message.
+_TASK_NAME_MAX_LEN = 120
+
+
+def _is_placeholder_task(task: str | None) -> bool:
+    """opencode's default session title is 'New session - <ISO timestamp>'."""
+    if not task:
+        return True
+    t = task.strip()
+    return not t or t.lower().startswith("new session")
+
+
+def _extract_user_text(props: dict[str, Any]) -> str | None:
+    """Return user-authored text from a message.part.updated event, or None."""
+    part = props.get("part") or {}
+    if not isinstance(part, dict):
+        return None
+    if part.get("type") != "text":
+        return None
+    # User text parts have no "time" field (assistant deltas do).
+    if "time" in part:
+        return None
+    text = part.get("text")
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    return text or None
+
+
+def _derive_task_name(text: str) -> str:
+    """First line, truncated, suitable for the runs table."""
+    first_line = text.splitlines()[0].strip()
+    if len(first_line) <= _TASK_NAME_MAX_LEN:
+        return first_line
+    return first_line[: _TASK_NAME_MAX_LEN - 1].rstrip() + "…"
 
 
 async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
-    """Ensure a runs row exists; populate from session.created when possible."""
+    """Ensure a runs row exists; populate from session.created when possible.
+
+    Also refreshes the task name from later events:
+      - session.updated: pick up opencode's auto-generated title
+      - message.part.updated (user text): use the user's first message as task
+        when the current task is missing or a placeholder.
+    """
     existing = await session.get(Run, ev.run_id)
     if existing is not None:
         if ev.type == SESSION_CREATED:
             info = ev.properties.get("info") or {}
             existing.task = existing.task or info.get("title")
             existing.worktree = existing.worktree or info.get("directory") or ev.worktree
+        elif ev.type == SESSION_UPDATED:
+            info = ev.properties.get("info") or {}
+            new_title = info.get("title")
+            # Refresh title if opencode generated a real one (non-placeholder).
+            if new_title and not _is_placeholder_task(new_title):
+                existing.task = new_title
+        elif ev.type == MESSAGE_PART_UPDATED and _is_placeholder_task(existing.task):
+            user_text = _extract_user_text(ev.properties)
+            if user_text:
+                existing.task = _derive_task_name(user_text)
+        elif ev.type == AUTOPSY_TASK_SET:
+            new_task = ev.properties.get("task")
+            if isinstance(new_task, str) and new_task.strip():
+                # `force=True` means this came from a high-fidelity source
+                # (e.g. opencode's auto-generated session.title) — always
+                # override. Otherwise only upgrade away from a placeholder.
+                forced = bool(ev.properties.get("force"))
+                if forced or _is_placeholder_task(existing.task):
+                    existing.task = _derive_task_name(new_task)
         return existing
 
     info = ev.properties.get("info") or {}
+    # If an autopsy.task.set arrives before session.created, still record the
+    # task so the dashboard never displays a missing/placeholder name.
+    initial_task: str | None = info.get("title")
+    if ev.type == AUTOPSY_TASK_SET:
+        candidate = ev.properties.get("task")
+        if isinstance(candidate, str) and candidate.strip():
+            initial_task = _derive_task_name(candidate)
     run = Run(
         run_id=ev.run_id,
         project=ev.project,
         worktree=ev.worktree or info.get("directory"),
-        task=info.get("title"),
+        task=initial_task,
         started_at=ev.ts,
         status="active",
     )

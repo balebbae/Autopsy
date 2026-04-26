@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import useSWR from "swr"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import {
   Download,
@@ -23,6 +23,7 @@ import {
   apiBaseUrl,
   type GraphEdge,
   type GraphNode,
+  type RunSummary,
 } from "@/lib/api"
 import { buildMockGraph } from "@/lib/graph-mock"
 import { Button } from "@/components/ui/button"
@@ -75,9 +76,40 @@ const fetcher = async (
   }
 }
 
+const runsFetcher = async (url: string): Promise<RunSummary[]> => {
+  try {
+    const r = await fetch(`${url}/v1/runs`, { cache: "no-store" })
+    if (!r.ok) return []
+    return (await r.json()) as RunSummary[]
+  } catch {
+    return []
+  }
+}
+
+// Filter the graph to nodes/edges connected to a specific run.
+// Strategy: keep edges with matching evidence_run_id, plus any nodes that are
+// endpoints of those edges. This gives a focused subgraph showing the causal
+// chain that produced this run's failure.
+function filterByRun(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  runId: string,
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const runEdges = edges.filter((e) => e.evidence_run_id === runId)
+  const keepIds = new Set<string>()
+  for (const e of runEdges) {
+    keepIds.add(e.source_id)
+    keepIds.add(e.target_id)
+  }
+  const runNodes = nodes.filter((n) => keepIds.has(n.id))
+  return { nodes: runNodes, edges: runEdges }
+}
+
 export function GraphExplorer() {
   const params = useSearchParams()
+  const router = useRouter()
   const forceMock = params?.get("mock") === "1"
+  const runFilter = params?.get("run") ?? ""
 
   const { data, isLoading, mutate } = useSWR(
     forceMock ? null : ["graph", apiBaseUrl],
@@ -85,7 +117,27 @@ export function GraphExplorer() {
     { revalidateOnFocus: false },
   )
 
-  const payload: GraphPayload | null = React.useMemo(() => {
+  // Lightweight runs list for the focus-run dropdown. Skipped in mock mode.
+  const { data: runsData } = useSWR(
+    forceMock ? null : ["runs", apiBaseUrl],
+    () => runsFetcher(apiBaseUrl),
+    { revalidateOnFocus: false },
+  )
+
+  const setRunFilter = React.useCallback(
+    (runId: string) => {
+      const next = new URLSearchParams(params?.toString() ?? "")
+      if (runId) next.set("run", runId)
+      else next.delete("run")
+      const qs = next.toString()
+      router.replace(qs ? `/graph?${qs}` : "/graph", { scroll: false })
+    },
+    [params, router],
+  )
+
+  // Unfiltered base graph — used both for the all-runs view and for computing
+  // which runs actually have evidence in the picker.
+  const baseGraph: GraphPayload | null = React.useMemo(() => {
     if (forceMock) {
       const m = buildMockGraph()
       return { ...m, source: "mock" }
@@ -95,8 +147,27 @@ export function GraphExplorer() {
       const m = buildMockGraph()
       return { ...m, source: "mock" }
     }
-    return { ...data, source: "api" }
+    return { nodes: data.nodes, edges: data.edges, source: "api" }
   }, [data, forceMock])
+
+  // Set of run_ids that actually have at least one edge in the graph.
+  // Used to filter the picker dropdown to runs the user can usefully focus on.
+  const runIdsWithEvidence = React.useMemo(() => {
+    const s = new Set<string>()
+    for (const e of baseGraph?.edges ?? []) {
+      if (e.evidence_run_id) s.add(e.evidence_run_id)
+    }
+    return s
+  }, [baseGraph])
+
+  const payload: GraphPayload | null = React.useMemo(() => {
+    if (!baseGraph) return null
+    if (runFilter) {
+      const filtered = filterByRun(baseGraph.nodes, baseGraph.edges, runFilter)
+      return { ...filtered, source: baseGraph.source }
+    }
+    return baseGraph
+  }, [baseGraph, runFilter])
 
   const fgRef = React.useRef<ForceGraphMethods | undefined>(undefined)
   const positionedNodesRef = React.useRef<Array<{ id: string; x?: number; y?: number; type: string }>>([])
@@ -267,7 +338,7 @@ export function GraphExplorer() {
         <div className="pointer-events-auto flex items-center gap-2">
             <div className="rounded-lg border border-border bg-card/80 backdrop-blur-md px-3 py-1.5 shadow-sm">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Failure graph
+              {runFilter ? "Failure graph · run focus" : "Failure graph"}
             </p>
             <div className="flex items-baseline gap-3">
               <span className="text-sm font-semibold tabular-nums">
@@ -305,6 +376,37 @@ export function GraphExplorer() {
                 className="h-10 pl-10 w-64 text-sm"
               />
             </div>
+            {!forceMock ? (() => {
+              // Only offer runs that actually have graph evidence — otherwise
+              // selecting them produces an empty subgraph. Always include the
+              // currently-selected run even if it has no evidence so the
+              // dropdown reflects the URL state.
+              const selectableRuns = (runsData ?? []).filter(
+                (r) => runIdsWithEvidence.has(r.run_id) || r.run_id === runFilter,
+              )
+              if (selectableRuns.length === 0) return null
+              return (
+                <Select
+                  value={runFilter || "__all__"}
+                  onValueChange={(v) => setRunFilter(v === "__all__" ? "" : v)}
+                >
+                  <SelectTrigger className="h-10 w-56 text-sm">
+                    <Network className="h-4 w-4 mr-2 opacity-60" />
+                    <SelectValue placeholder="All runs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All runs</SelectItem>
+                    {selectableRuns.map((r) => (
+                      <SelectItem key={r.run_id} value={r.run_id}>
+                        <span className="truncate max-w-[20rem] inline-block align-middle">
+                          {r.task ?? r.run_id.slice(0, 16)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )
+            })() : null}
             <Select value={layout} onValueChange={(v) => setLayout(v as LayoutKey)}>
               <SelectTrigger className="h-10 w-44 text-sm">
                 <Wand2 className="h-4 w-4 mr-2 opacity-60" />
@@ -432,29 +534,49 @@ export function GraphExplorer() {
       <div className="flex-1 relative">
         {!hasData ? (
           <div className="absolute inset-0 grid place-items-center p-6">
-            <EmptyState
-              Icon={Network}
-              title="No graph data yet"
-              description={
-                <>
-                  Run <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">make seed</code> to
-                  populate the failure graph, or append <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">?mock=1</code> to
-                  preview the layout with demo data.
-                </>
-              }
-              action={
-                <div className="flex items-center gap-2">
-                  <Button onClick={() => mutate()} variant="outline">
-                    <RefreshCw className="h-3.5 w-3.5" /> Retry
-                  </Button>
-                  <Button asChild variant="default">
-                    <a href="?mock=1">
-                      <Sparkles className="h-3.5 w-3.5" /> Load demo data
-                    </a>
-                  </Button>
-                </div>
-              }
-            />
+            {runFilter ? (
+              <EmptyState
+                Icon={Network}
+                title="No graph evidence for this run yet"
+                description="The failure graph is only generated after a run is finalized (rejected, approved, or aborted). Active runs don't appear here until they end and the autopsy classifier runs."
+                action={
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => setRunFilter("")} variant="default">
+                      <Network className="h-3.5 w-3.5" /> Show all runs
+                    </Button>
+                    <Button asChild variant="outline">
+                      <a href={`/runs/${runFilter}`}>
+                        <X className="h-3.5 w-3.5" /> Open run details
+                      </a>
+                    </Button>
+                  </div>
+                }
+              />
+            ) : (
+              <EmptyState
+                Icon={Network}
+                title="No graph data yet"
+                description={
+                  <>
+                    Run <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">make seed</code> to
+                    populate the failure graph, or append <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">?mock=1</code> to
+                    preview the layout with demo data.
+                  </>
+                }
+                action={
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => mutate()} variant="outline">
+                      <RefreshCw className="h-3.5 w-3.5" /> Retry
+                    </Button>
+                    <Button asChild variant="default">
+                      <a href="?mock=1">
+                        <Sparkles className="h-3.5 w-3.5" /> Load demo data
+                      </a>
+                    </Button>
+                  </div>
+                }
+              />
+            )}
           </div>
         ) : (
           <>

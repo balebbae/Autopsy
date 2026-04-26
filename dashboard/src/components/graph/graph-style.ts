@@ -98,6 +98,19 @@ export function nodeStyle(node: GraphNode): NodeStyleConfig {
   return NODE_TYPE_STYLE[node.type] ?? DEFAULT_STYLE
 }
 
+/**
+ * Human-readable display label for a node.
+ * Run nodes store their task description in `properties.task`; using the
+ * raw run_id as the label is unreadable. All other types use `node.name`.
+ */
+export function nodeDisplayName(node: GraphNode): string {
+  if (node.type === "Run") {
+    const task = node.properties?.task
+    if (typeof task === "string" && task.trim()) return task
+  }
+  return node.name
+}
+
 export const NODE_TYPES: string[] = Object.keys(NODE_TYPE_STYLE)
 
 // Edge type styling

@@ -1,6 +1,6 @@
 import * as React from "react"
 import Link from "next/link"
-import { ArrowLeft, ExternalLink, Folder, GitBranch } from "lucide-react"
+import { ArrowLeft, ExternalLink, Folder, GitBranch, Network } from "lucide-react"
 
 import type { Run } from "@/lib/api"
 import { shortId } from "@/lib/utils"
@@ -57,8 +57,14 @@ export function RunHeader({ run, children }: { run: Run; children?: React.ReactN
             ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {children}
+          <Link
+            href={`/graph?run=${encodeURIComponent(run.run_id)}`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent cursor-pointer"
+          >
+            <Network className="h-3.5 w-3.5" /> View in graph
+          </Link>
           <Link
             href={`${process.env.NEXT_PUBLIC_AAG_URL ?? "http://localhost:4000"}/v1/runs/${run.run_id}`}
             target="_blank"

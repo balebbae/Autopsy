@@ -239,6 +239,65 @@ async def test_on_run_complete_no_symptoms() -> None:
         await _cleanup(run_id)
 
 
+async def test_on_run_complete_embeddings_failure_does_not_wipe_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: an embeddings failure must not roll back graph evidence.
+
+    Pre-fix, the graph writer and embeddings writer shared one transaction;
+    a missing optional ML dep at the embeddings step caused a rollback that
+    wiped all the just-written Run/File/Component nodes and run-tagged edges.
+    """
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("simulated missing embeddings backend")
+
+    monkeypatch.setattr("aag.workers.finalizer.gembed.write_for", _boom)
+
+    run_id = f"test-finalizer-{uuid4().hex[:8]}"
+    sm = sessionmaker()
+    async with sm() as session:
+        await _make_rejected_schema_run(session, run_id)
+        await session.commit()
+
+    try:
+        # Should not raise even though embeddings step throws.
+        await on_run_complete(run_id)
+
+        async with sm() as session:
+            fc = await session.get(FailureCase, run_id)
+            assert fc is not None, "FailureCase must survive embeddings failure"
+
+            run_node = (
+                await session.execute(select(GraphNode).where(GraphNode.id == f"Run:{run_id}"))
+            ).scalar_one_or_none()
+            assert run_node is not None, "Run node must survive embeddings failure"
+
+            edges = (
+                (
+                    await session.execute(
+                        select(GraphEdge).where(GraphEdge.evidence_run_id == run_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(edges) > 0, (
+                "Run-tagged edges must survive an embeddings failure — "
+                "this is the bug the fix addresses."
+            )
+
+            # Embeddings deliberately failed, so none should be present.
+            emb_count = (
+                await session.execute(
+                    select(func.count()).select_from(Embedding).where(Embedding.entity_id == run_id)
+                )
+            ).scalar_one()
+            assert emb_count == 0
+    finally:
+        await _cleanup(run_id)
+
+
 async def test_on_run_complete_missing_run() -> None:
     """A run_id that doesn't exist should be a no-op (no raise, no rows)."""
     run_id = f"test-finalizer-missing-{uuid4().hex[:8]}"
