@@ -57,6 +57,11 @@ By default this brings up the full local stack:
 - builds the plugin and drops it at `.opencode/plugins/autopsy.js` in the
   current project
 - writes `AAG_URL=http://localhost:4000` to the project's `.env`
+- prompts once for an optional `GEMINI_API_KEY` (press Enter to skip).
+  When provided, the key is written to `~/.autopsy/Autopsy/.env` and the
+  service runs with the LLM enhancer + LLM-synthesized preflight prose
+  enabled. Otherwise the deterministic classifier + template addendum are
+  used (Autopsy still works fully without a key).
 - starts the FastAPI service on `:4000` and the dashboard on `:3000` in
   the background. `~/.autopsy/stop.sh` stops everything.
 
@@ -71,6 +76,10 @@ Flags:
 - `--no-start` set everything up but don't launch the service / dashboard
   (postgres still comes up). Run `make dev` from `~/.autopsy/Autopsy`
   whenever you're ready.
+- `--no-prompt` skip the Gemini key prompt entirely. Equivalent to setting
+  `AUTOPSY_NO_PROMPT=1`. If you have `GEMINI_API_KEY` set in your shell, the
+  prompt is also skipped and the key is written to `~/.autopsy/Autopsy/.env`
+  automatically.
 
 ### For Autopsy contributors
 
