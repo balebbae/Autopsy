@@ -53,7 +53,10 @@ def _make_failure_case(
         failure_mode="incomplete_schema_change",
         fix_pattern=fix_pattern,
         components=["profile"],
-        change_patterns=["schema_field_addition"],
+        # Mix: "schema_field_addition" duplicates a Symptom (should be
+        # skipped by the writer's symptom-dedup); "added_field" is a real,
+        # non-overlapping diff pattern that should still produce a node.
+        change_patterns=["schema_field_addition", "added_field"],
         symptoms=[
             Symptom(name="schema_field_addition", evidence=["+preferredName"], confidence=0.8),
             Symptom(name="missing_migration", evidence=["no migration file"], confidence=0.7),
@@ -74,7 +77,7 @@ def _make_extraction(run_id: str) -> Extraction:
         components=["profile", "auth"],
         tool_calls=[],
         errors=[],
-        change_patterns=["schema_field_addition"],
+        change_patterns=["schema_field_addition", "added_field"],
         failure_mode="incomplete_schema_change",
         fix_pattern="regenerate_types",
         symptoms=[],
@@ -130,10 +133,22 @@ async def test_write_creates_all_node_types(run_id: str) -> None:
         )
         await session.commit()
 
+    # Scope assertions to nodes reachable via edges tagged with this run_id —
+    # `graph_nodes` is global and may contain leftovers from other tests.
     async with sm() as session:
-        rows = (await session.execute(select(GraphNode.type, GraphNode.name))).all()
+        edge_rows = (
+            (await session.execute(select(GraphEdge).where(GraphEdge.evidence_run_id == run_id)))
+            .scalars()
+            .all()
+        )
+        endpoint_ids = {e.source_id for e in edge_rows} | {e.target_id for e in edge_rows}
+        node_rows = (
+            await session.execute(
+                select(GraphNode.type, GraphNode.name).where(GraphNode.id.in_(endpoint_ids))
+            )
+        ).all()
 
-    pairs = {(t, n) for t, n in rows}
+    pairs = {(t, n) for t, n in node_rows}
 
     assert ("Run", run_id) in pairs
     assert ("Task", "feature_addition") in pairs
@@ -142,7 +157,11 @@ async def test_write_creates_all_node_types(run_id: str) -> None:
     assert ("File", "src/auth/login.ts") in pairs
     assert ("Component", "profile") in pairs
     assert ("Component", "auth") in pairs
-    assert ("ChangePattern", "schema_field_addition") in pairs
+    # "schema_field_addition" is also a Symptom name — the writer must skip
+    # it as a ChangePattern node to avoid the duplicate-concept clutter.
+    assert ("ChangePattern", "schema_field_addition") not in pairs
+    # A non-overlapping change_pattern still becomes its own node.
+    assert ("ChangePattern", "added_field") in pairs
     assert ("Symptom", "schema_field_addition") in pairs
     assert ("Symptom", "missing_migration") in pairs
     assert ("FailureMode", "incomplete_schema_change") in pairs

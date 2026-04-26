@@ -8,6 +8,7 @@
 // default export. The function returns a Hooks object. See
 // .opencode/node_modules/@opencode-ai/plugin/dist/index.d.ts.
 
+import { onChatMessage } from "./handlers/chat-message.ts"
 import { onEvent } from "./handlers/event.ts"
 import { onPermissionAsk } from "./handlers/permission.ts"
 import { makeRejectionTool } from "./handlers/register-rejection.ts"
@@ -19,7 +20,7 @@ const Autopsy = async (ctx: {
   project?: { id?: string }
   directory?: string
   worktree?: string
-  client?: unknown
+  client?: any
   $?: unknown
 }) => {
   // Dynamically import tool() from the opencode plugin SDK. This resolves
@@ -35,6 +36,8 @@ const Autopsy = async (ctx: {
   return {
     event: (input: { event: { type: string; properties: Record<string, unknown> } }) =>
       onEvent(input, ctx),
+
+    "chat.message": (input: any, output: any) => onChatMessage(input, output, ctx),
 
     "tool.execute.before": (input: any, output: any) => onToolBefore(input, output),
     "tool.execute.after": (input: any, output: any) => onToolAfter(input, output),

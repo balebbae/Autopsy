@@ -159,7 +159,17 @@ async def write(
             )
 
     # --- Change patterns ------------------------------------------------------
+    # Skip change_patterns whose name duplicates a Symptom — the current
+    # classifier seeds change_patterns from `[s.name for s in symptoms]`, which
+    # would materialize a redundant ChangePattern node for every Symptom and
+    # clutter the graph. Only emit ChangePattern nodes for names that are NOT
+    # also symptom names; this preserves the schema for a future diff-derived
+    # change-pattern detector (e.g. "added_field", "renamed_function") without
+    # producing visual duplicates today.
+    symptom_names = {s.name for s in failure_case.symptoms}
     for cp in extraction.change_patterns:
+        if cp in symptom_names:
+            continue
         cp_node = await upsert_node(session, type="ChangePattern", name=cp, properties={})
         await upsert_edge(
             session,
