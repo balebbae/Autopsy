@@ -63,12 +63,15 @@ function PreflightHitRow({ hit }: { hit: PreflightHit }) {
               </Badge>
             ) : null}
             {hit.tool ? (
-              <span className="text-[11px] font-mono text-muted-foreground">
+              <span className="font-mono text-[11px] text-muted-foreground">
                 tool: {hit.tool}
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-sm leading-snug" title={hit.task}>
+          <p
+            className="mt-1 text-sm leading-snug line-clamp-3 [overflow-wrap:anywhere]"
+            title={hit.task}
+          >
             {hit.task}
           </p>
         </div>
@@ -108,7 +111,7 @@ function PreflightHitRow({ hit }: { hit: PreflightHit }) {
           <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground select-none">
             Show prompt addendum (what the agent saw)
           </summary>
-          <pre className="mt-1.5 whitespace-pre-wrap text-[11px] leading-snug font-mono p-2 rounded-md bg-muted/60 text-foreground/90">
+          <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-muted/60 p-2 font-mono text-[11px] leading-snug text-foreground/90 [overflow-wrap:anywhere]">
             {hit.addendum}
           </pre>
         </details>

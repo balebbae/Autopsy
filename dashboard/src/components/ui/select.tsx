@@ -17,7 +17,10 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
+      // `[&>span]:…` targets the Radix SelectValue span. Without `truncate`
+      // there, a long selected value (e.g. a 200-char run task) blows past
+      // the trigger's `w-…` and bleeds into adjacent toolbar chrome.
+      "flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap overflow-hidden rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer [&>span]:flex-1 [&>span]:min-w-0 [&>span]:truncate [&>span]:text-left",
       className,
     )}
     {...props}

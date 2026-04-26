@@ -31,27 +31,31 @@ export function RunHeader({ run }: { run: Run }) {
               {shortId(run.run_id, 10, 6)}
             </span>
           </div>
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight leading-tight">
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight leading-tight [overflow-wrap:anywhere]">
             {run.task ?? "Untitled run"}
           </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             {run.project ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Folder className="h-3.5 w-3.5" />
-                {run.project}
+              <span className="inline-flex max-w-full items-center gap-1.5 truncate">
+                <Folder className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate" title={run.project}>
+                  {run.project}
+                </span>
               </span>
             ) : null}
             {run.worktree ? (
-              <span className="inline-flex items-center gap-1.5 font-mono">
-                <GitBranch className="h-3.5 w-3.5" />
-                {run.worktree}
+              <span className="inline-flex max-w-full items-center gap-1.5 font-mono">
+                <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate" title={run.worktree}>
+                  {run.worktree}
+                </span>
               </span>
             ) : null}
-            <span>
+            <span className="whitespace-nowrap">
               Started <RelativeTime ts={run.started_at} />
             </span>
             {run.ended_at ? (
-              <span>
+              <span className="whitespace-nowrap">
                 Ended <RelativeTime ts={run.ended_at} />
               </span>
             ) : null}

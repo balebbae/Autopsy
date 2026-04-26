@@ -244,16 +244,21 @@ function TimelineRow({
           <EventIcon type={event.type} />
         </span>
         <div className="flex-1 min-w-0 pt-0.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className={cn("text-sm font-medium truncate flex items-center gap-1.5", severity === "muted" && "text-xs font-normal text-muted-foreground")}>
-              {label}
+          <div className="flex items-baseline justify-between gap-3">
+            <span
+              className={cn(
+                "min-w-0 flex flex-1 items-center gap-1.5 text-sm font-medium",
+                severity === "muted" && "text-xs font-normal text-muted-foreground",
+              )}
+            >
+              <span className="truncate">{label}</span>
               {repeat > 1 ? (
-                <span className="inline-flex items-center rounded-full border border-border bg-muted/60 px-1.5 py-0 text-[10px] font-mono text-muted-foreground tabular-nums">
+                <span className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted/60 px-1.5 py-0 text-[10px] font-mono text-muted-foreground tabular-nums">
                   ×{repeat}
                 </span>
               ) : null}
             </span>
-            <span className="text-[11px] font-mono text-muted-foreground tabular-nums shrink-0">
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-mono tabular-nums text-muted-foreground">
               {new Date(event.ts).toLocaleTimeString()}
               {repeat > 1 && lastTs && lastTs !== event.ts ? (
                 <span className="opacity-60">
@@ -266,7 +271,7 @@ function TimelineRow({
           {summary ? (
             <p
               className={cn(
-                "mt-0.5 text-[12px] text-muted-foreground truncate",
+                "mt-0.5 text-[12px] leading-snug text-muted-foreground line-clamp-2 [overflow-wrap:anywhere]",
                 severity === "muted" && "hidden",
               )}
             >

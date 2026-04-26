@@ -225,7 +225,18 @@ function RejectionBranch({
 }) {
   const tipX = cx + 40
   const tipY = SPINE_Y + 130
-  const path = `M ${cx} ${SPINE_Y} C ${cx + 8} ${SPINE_Y + 60}, ${cx + 24} ${SPINE_Y + 90}, ${tipX} ${tipY}`
+  const tipR = 14
+  // Cubic Bezier endpoint coincides with the circle center, so the line's
+  // last segment passes through the X glyph. Trim the path so it stops at
+  // the rim — the tangent at the endpoint is (40-24, 130-90) = (16, 40)
+  // (control point B → end), normalized then scaled by the radius. We
+  // overshoot by 1px so the stroke butts cleanly against the rim instead
+  // of leaving a 1px gap when antialiased.
+  const tangentMag = Math.hypot(16, 40)
+  const trim = tipR + 1
+  const trimmedX = tipX - (16 / tangentMag) * trim
+  const trimmedY = tipY - (40 / tangentMag) * trim
+  const path = `M ${cx} ${SPINE_Y} C ${cx + 8} ${SPINE_Y + 60}, ${cx + 24} ${SPINE_Y + 90}, ${trimmedX} ${trimmedY}`
   const toolSummary = summarizeAttempt(attempt)
   return (
     <g>
@@ -263,10 +274,18 @@ function RejectionBranch({
           </text>
         </g>
       ) : null}
-      {/* ✕ marker */}
-      <circle cx={tipX} cy={tipY} r={14} fill="rgba(239,68,68,0.18)" stroke="rgba(239,68,68,0.6)" strokeWidth={1.5} />
+      {/* ✕ marker — opaque card-tone fill so the trimmed branch line can't
+          peek through the glyph at any AA level. */}
+      <circle
+        cx={tipX}
+        cy={tipY}
+        r={tipR}
+        fill="rgb(20,22,32)"
+        stroke="rgba(239,68,68,0.7)"
+        strokeWidth={1.5}
+      />
       <path
-        d={`M ${tipX - 7} ${tipY - 7} L ${tipX + 7} ${tipY + 7} M ${tipX + 7} ${tipY - 7} L ${tipX - 7} ${tipY + 7}`}
+        d={`M ${tipX - 6} ${tipY - 6} L ${tipX + 6} ${tipY + 6} M ${tipX + 6} ${tipY - 6} L ${tipX - 6} ${tipY + 6}`}
         stroke="#fca5a5"
         strokeWidth={2.2}
         strokeLinecap="round"
