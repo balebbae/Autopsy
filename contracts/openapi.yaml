@@ -641,7 +641,7 @@ components:
           max_hop_depth,
         ]
       properties:
-        embed_provider: { type: string, enum: [stub, local, openai] }
+        embed_provider: { type: string, enum: [stub, local, openai, gemini] }
         vector_dim: { type: integer }
         similarity_threshold: { type: number, format: float }
         half_life_days: { type: number, format: float }

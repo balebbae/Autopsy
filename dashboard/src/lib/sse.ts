@@ -43,7 +43,6 @@ export function useRunStream(runId: string | undefined): RunStreamState {
     es.onopen = () => setStatus("open")
     es.onerror = () => setStatus("error")
     es.onmessage = onMessage
-    es.addEventListener("message", onMessage)
     return () => {
       es.close()
       setStatus("closed")

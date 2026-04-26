@@ -181,7 +181,7 @@ export type TraceAggregatedNode = {
 }
 
 export type PreflightTrace = {
-  embed_provider: "stub" | "local" | "openai"
+  embed_provider: "stub" | "local" | "openai" | "gemini"
   vector_dim: number
   similarity_threshold: number
   half_life_days: number
