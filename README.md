@@ -36,7 +36,8 @@ without it). `~/.autopsy/stop.sh` brings everything back down.
 
 Flags: `--plugin-only` (skip the stack, point at a remote service),
 `--no-start` (set up but don't launch), `--no-prompt` (skip the Gemini key
-prompt). See `install.sh --help`.
+prompt), `--stop` (tear down the running stack and exit).
+See `install.sh --help`.
 
 ## How it works
 
@@ -51,7 +52,7 @@ recorder plugin   ─POST─▶  AAG service  ─▶  Postgres + pgvector
                               ▼
                           /v1/preflight
                               │
-                              │  ANN + 2-hop traversal over the failure graph
+                              │  ANN + 3-hop traversal over the failure graph
                               ▼
 opencode runtime  ◀────  system addendum + (sometimes) hard-blocks tool calls
 ```
