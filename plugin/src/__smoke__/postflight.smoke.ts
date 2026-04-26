@@ -8,6 +8,7 @@ import {
   buildRejectionReason,
   cancelPostflight,
   getPostflightChecks,
+  markPostflightDirty,
   resolvePostflightBaseCwd,
   runPostflight,
   schedulePostflight,
@@ -23,6 +24,11 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+const runDirtyPostflight = (runId: string) => {
+  markPostflightDirty(runId)
+  return runPostflight(runId)
+}
 
 // --- harness --------------------------------------------------------------
 
@@ -119,7 +125,7 @@ async function testRunPostflightAllPass() {
       "echo fast2": { exitCode: 0, stdout: "ok\n" },
     }),
   })
-  const results = await runPostflight("session-pass")
+  const results = await runDirtyPostflight("session-pass")
   assert(results.length === 2, `expected 2 results, got ${results.length}`)
   for (const r of results) {
     assert(r.passed === true, `${r.name} should have passed; exit=${r.exitCode}`)
@@ -153,7 +159,7 @@ async function testRunPostflightFilesRejection() {
     projectId: "test-project",
     worktree: "/tmp/test",
   })
-  const results = await runPostflight("session-fail")
+  const results = await runDirtyPostflight("session-fail")
   assert(results.length === 2, `expected 2 results, got ${results.length}`)
   const failing = results.find((r) => r.name === "failing")
   assert(failing !== undefined, "missing 'failing' result")
@@ -198,7 +204,7 @@ async function testTimeoutMarksFailure() {
       slow: { exitCode: 0, stdout: "would-have-passed", delayMs: 200 },
     }),
   })
-  const results = await runPostflight("session-timeout")
+  const results = await runDirtyPostflight("session-timeout")
   assert(results.length === 1, "expected one result")
   const r = results[0]!
   assert(r.passed === false, "timeout should mark check as failed")
@@ -226,6 +232,7 @@ async function testInflightDedupe() {
 
   // Kick off a run, then immediately try a second one. The second
   // should observe the inflight flag and bail out with [].
+  markPostflightDirty("session-inflight")
   const first = runPostflight("session-inflight")
   const second = runPostflight("session-inflight")
   const [r1, r2] = await Promise.all([first, second])
@@ -254,6 +261,7 @@ async function testSchedulerDebounce() {
       "scheduled-cmd": { exitCode: 0, stdout: "ok" },
     }),
   })
+  markPostflightDirty("session-debounce")
   schedulePostflight("session-debounce")
   // Reschedule a few times within the debounce window — only the last
   // schedule should actually fire.
@@ -283,6 +291,7 @@ async function testCancelPostflight() {
       "scheduled-cmd": { exitCode: 0, stdout: "ok" },
     }),
   })
+  markPostflightDirty("session-cancel")
   schedulePostflight("session-cancel")
   cancelPostflight("session-cancel")
   await sleep(80)
@@ -307,6 +316,7 @@ async function testDisabledFlag() {
       "scheduled-cmd": { exitCode: 0, stdout: "ok" },
     }),
   })
+  markPostflightDirty("session-disabled")
   schedulePostflight("session-disabled")
   await sleep(60)
   const eventsCalls = captured.filter((c) => c.url.endsWith("/v1/events"))
@@ -335,9 +345,9 @@ async function testRepeatedFailureDedup() {
     }),
   })
 
-  await runPostflight("session-repeat")
-  await runPostflight("session-repeat")
-  await runPostflight("session-repeat")
+  await runDirtyPostflight("session-repeat")
+  await runDirtyPostflight("session-repeat")
+  await runDirtyPostflight("session-repeat")
 
   const rejectionCalls = captured.filter((c) => c.url.includes("/rejections"))
   assert(
@@ -405,13 +415,13 @@ async function testNewFailureClearsDedup() {
   bindPostflight({ $: fake })
 
   ;(globalThis as any).__phase = "A"
-  await runPostflight("session-new-fail")
+  await runDirtyPostflight("session-new-fail")
   ;(globalThis as any).__phase = "B"
-  await runPostflight("session-new-fail")
+  await runDirtyPostflight("session-new-fail")
   ;(globalThis as any).__phase = "PASS"
-  await runPostflight("session-new-fail")
+  await runDirtyPostflight("session-new-fail")
   ;(globalThis as any).__phase = "B"
-  await runPostflight("session-new-fail")
+  await runDirtyPostflight("session-new-fail")
 
   const rejectionCalls = captured.filter((c) => c.url.includes("/rejections"))
   assert(
@@ -435,7 +445,7 @@ async function testCwdValidation() {
     }),
     cwd: "/tmp/postflight-cwd-validation-base-does-not-exist-either",
   })
-  const results = await runPostflight("session-bad-cwd")
+  const results = await runDirtyPostflight("session-bad-cwd")
   assert(results.length === 1, `expected one result, got ${results.length}`)
   const r = results[0]!
   assert(r.passed === false, "bad cwd should mark check as failed")
