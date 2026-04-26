@@ -16,21 +16,21 @@ const parseInt10 = (raw: string | undefined, fallback: number): number => {
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
-const parseBool = (raw: string | undefined): boolean => {
-  if (!raw) return false
+const parseBool = (raw: string | undefined, fallback = false): boolean => {
+  if (!raw) return fallback
   const v = raw.trim().toLowerCase()
-  return v === "1" || v === "true" || v === "yes" || v === "on"
-}
-
-const parseToastScope = (raw: string | undefined): "tool" | "system" | "both" => {
-  const v = raw?.trim().toLowerCase()
-  if (v === "system" || v === "both") return v
-  return "tool"
+  if (v === "1" || v === "true" || v === "yes" || v === "on") return true
+  if (v === "0" || v === "false" || v === "no" || v === "off") return false
+  return fallback
 }
 
 export const config = {
   url: process.env.AAG_URL ?? "http://localhost:4000",
   token: process.env.AAG_TOKEN,
+  // Dashboard origin used to build clickable run links inside opencode
+  // toasts. Override with AAG_DASHBOARD_URL when running the dashboard
+  // somewhere other than the default Next.js dev server.
+  dashboardUrl: process.env.AAG_DASHBOARD_URL ?? "http://localhost:3000",
   // Preflight knobs (see plugin/src/handlers/tool-before.ts). The default
   // tool set covers both *mutating* tools (where we may want to BLOCK) and
   // *exploratory* tools (where we mainly want to record warned-events that
@@ -43,13 +43,12 @@ export const config = {
     // a degraded service never stalls the agent's hot path; on timeout we
     // fail open (treat as risk_level=none).
     timeoutMs: parseInt10(process.env.AAG_PREFLIGHT_TIMEOUT_MS, 800),
-    // System prompt additions are hidden in opencode's transcript. Set this
-    // to show TUI toasts when Autopsy fires. The default visible toast is
-    // per risky tool call; set AAG_PREFLIGHT_TUI_TOAST_SCOPE=system or both
-    // if you also want the hidden-context injection toast.
-    tuiToast: parseBool(process.env.AAG_PREFLIGHT_TUI_TOAST),
+    // System prompt additions are hidden in opencode's transcript. The
+    // single system-injection toast surfaces them so the user knows when
+    // Autopsy fires. Defaults to ON — set AAG_PREFLIGHT_TUI_TOAST=0 to
+    // silence.
+    tuiToast: parseBool(process.env.AAG_PREFLIGHT_TUI_TOAST, true),
     tuiToastDurationMs: parseInt10(process.env.AAG_PREFLIGHT_TUI_TOAST_DURATION_MS, 30000),
-    tuiToastScope: parseToastScope(process.env.AAG_PREFLIGHT_TUI_TOAST_SCOPE),
     tools: parseToolList(process.env.AAG_PREFLIGHT_TOOLS, [
       // Mutating.
       "edit",

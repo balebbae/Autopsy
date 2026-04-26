@@ -448,10 +448,8 @@ async function testDisabledFlagSkipsAll() {
   }
 }
 
-async function testToolToastsArePerDistinctRisk() {
+async function testToolBeforeNeverShowsToasts() {
   reset()
-  const previousToast = config.preflight.tuiToast
-  const previousScope = config.preflight.tuiToastScope
   const toasts: any[] = []
   const toastCtx = {
     ...ctx,
@@ -465,8 +463,6 @@ async function testToolToastsArePerDistinctRisk() {
     },
   }
 
-  config.preflight.tuiToast = true
-  config.preflight.tuiToastScope = "tool"
   scriptedPreflight = {
     status: 200,
     body: {
@@ -476,24 +472,16 @@ async function testToolToastsArePerDistinctRisk() {
     },
   }
 
-  try {
-    await onToolBefore({ sessionID: "s-toast", tool: "grep" }, { args: { pattern: "Settings" } }, toastCtx)
-    await onToolBefore({ sessionID: "s-toast", tool: "read" }, { args: { path: "settings.go" } }, toastCtx)
-    await onToolBefore({ sessionID: "s-toast", tool: "read" }, { args: { path: "settings.go" } }, toastCtx)
+  // Per-tool risk toasts were removed — `tool.execute.before` should
+  // never call `tui.showToast`, regardless of risk level. The
+  // system-injection toast (handlers/system.ts) is the only TUI surface.
+  await onToolBefore({ sessionID: "s-toast", tool: "grep" }, { args: { pattern: "Settings" } }, toastCtx)
+  await onToolBefore({ sessionID: "s-toast", tool: "read" }, { args: { path: "settings.go" } }, toastCtx)
 
-    assert(toasts.length === 2, `expected one toast per distinct risky tool call; got ${toasts.length}`)
-    assert(
-      toasts[0]?.body?.title === "Autopsy low risk: grep",
-      `first toast should identify grep risk; got ${JSON.stringify(toasts[0])}`,
-    )
-    assert(
-      toasts[1]?.body?.title === "Autopsy low risk: read",
-      `second toast should identify read risk; got ${JSON.stringify(toasts[1])}`,
-    )
-  } finally {
-    config.preflight.tuiToast = previousToast
-    config.preflight.tuiToastScope = previousScope
-  }
+  assert(
+    toasts.length === 0,
+    `tool.execute.before must not surface any toasts; got ${toasts.length}: ${JSON.stringify(toasts)}`,
+  )
 }
 
 // --- driver ---------------------------------------------------------------
@@ -512,7 +500,7 @@ async function main() {
     await testTimeoutFailsOpen()
     await testNon200FailsOpen()
     await testDisabledFlagSkipsAll()
-    await testToolToastsArePerDistinctRisk()
+    await testToolBeforeNeverShowsToasts()
     console.log("ok")
   } catch (err) {
     console.error("FAIL: unhandled exception", err)

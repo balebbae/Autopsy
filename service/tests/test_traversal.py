@@ -209,13 +209,16 @@ async def test_preflight_finds_similar_run() -> None:
         assert run_id in resp.similar_runs
         assert "incomplete_schema_change" in resp.missing_followups
         assert resp.system_addendum is not None
-        assert "incomplete_schema_change" in resp.system_addendum
-        # The rules-based classifier maps ``incomplete_schema_change`` to
-        # this canonical fix string (see ``MODE_TO_FIX`` in classifier.py).
+        # The addendum is now a fix-pattern-only bulleted list — the
+        # rules-based classifier maps ``incomplete_schema_change`` to
+        # this canonical fix string (see ``MODE_TO_FIX`` in classifier.py)
+        # which must show up verbatim in both ``recommended_checks`` and
+        # the rendered addendum.
         assert any(
             "migration" in check.lower() and "regenerate" in check.lower()
             for check in resp.recommended_checks
         ), f"expected a migration/regenerate fix; got {resp.recommended_checks}"
+        assert resp.recommended_checks[0] in resp.system_addendum
     finally:
         await _cleanup(run_id)
 

@@ -205,7 +205,10 @@ async def test_demo_loop_full() -> None:
         assert "incomplete_schema_change" in body["missing_followups"]
         addendum = body.get("system_addendum")
         assert isinstance(addendum, str) and addendum
-        assert "incomplete_schema_change" in addendum
+        # Addendum is now a bulleted list of fix patterns — the top
+        # recommended check must appear verbatim.
+        assert body["recommended_checks"], "expected at least one recommended check"
+        assert body["recommended_checks"][0] in addendum
     finally:
         # 5. Cleanup everything tied to this run.
         await _cleanup(run_id)

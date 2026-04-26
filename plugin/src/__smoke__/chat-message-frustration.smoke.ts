@@ -208,6 +208,25 @@ const shouldMatch = [
   "disappointed", "let down", "expected better", "what a mess",
   // Hate
   "hate this", "sick of this", "fed up", "frustrating", "annoying",
+  // Code-review critique register (no profanity, but cumulative complaint)
+  "Issues found", "issues found in api.go", "found 5 issues",
+  "indentation is broken", "the test is broken",
+  "it's inconsistent", "it is inconsistent", "the inconsistency is minor",
+  "inconsistencies between the two files",
+  "will fail CI", "fails CI", "will fail the build", "fails lint",
+  "no tests", "no test coverage", "missing tests", "lack of test coverage",
+  "would be more accurate", "would be more consistent",
+  "no reason not to add a test", "no excuse",
+  "should have caught this", "should have been obvious",
+  // System failure reports
+  "the modal is not showing", "the toast isn't displaying",
+  "the regex is not detecting frustration",
+  "the event isn't firing", "the dashboard doesn't render",
+  "the SSE is not propagating",
+  // Demanding more effort
+  "focus much more on regex",
+  "pay much more attention to the spec",
+  "try harder", "do your job", "do it right this time",
   // Subtle compound
   "that wasnt great can you try again make sure eveything works",
   "no no no this is all wrong",
@@ -215,6 +234,24 @@ const shouldMatch = [
   "this is a waste of my time",
   "it was fine before you changed it",
 ]
+
+// ── Test 7b: the exact code-review message from the bug report ────
+// Mirrors the message a frustrated user dropped that previously slipped
+// past the regex. Ensures the regression doesn't come back.
+
+const codeReviewBugReport = `Issues found:
+  1. Partial route coverage. AdminApplicationsEnabledMiddleware only wraps GET / and GET /stats. It's inconsistent.
+  2. Indentation is broken in api.go. This is a gofmt issue that will fail CI.
+  3. A seed prefix would be more accurate since it's seeding default data.
+  4. No tests. There's no reason not to add at least a basic handler test.
+  5. The inconsistency is minor but worth aligning.
+
+however is not detecting fustration or at least is not showing on the frontend. Investigate why that is and make sure that the regex is correct and focus much more on regex.`
+
+assert(
+  FRUSTRATION_RE.test(codeReviewBugReport),
+  "expected FRUSTRATION_RE to match the code-review-style bug report",
+)
 
 for (const phrase of shouldMatch) {
   assert(
@@ -241,6 +278,15 @@ const shouldNotMatch = [
   "deploy to staging",
   "merge this into main",
   "create a new component for the sidebar",
+  // Counterexamples for the new categories — common neutral technical phrasing
+  // that must NOT trigger the new patterns.
+  "focus more on the algorithm part", // "focus more on" without intensifier
+  "pay more attention to async cleanup", // "pay more attention" without intensifier
+  "actually, can you also add a button", // "actually," at sentence start
+  "find issues in the issue tracker", // "find" not "found"
+  "we have tests for the happy path", // affirmative "have tests"
+  "the build is running on CI", // "is running" not "will fail CI"
+  "would you like me to add more tests", // "would you" — question
 ]
 
 for (const phrase of shouldNotMatch) {

@@ -9,10 +9,14 @@ import { postRejection } from "../client.ts"
 export const makeRejectionTool = (tool: any) =>
   tool({
     description:
-      "Register that the user is dissatisfied with your changes. " +
-      "Call this after asking the user what went wrong and receiving their explanation. " +
-      "Provide the reason and any failure details. " +
-      "The thread will continue after this call so you can attempt a fix.",
+      "Register that the user is dissatisfied with a change YOU made earlier in THIS session. " +
+      "Preconditions: you must have already made at least one edit/write/bash call in this session, " +
+      "and the user must have explicitly criticized one of those changes. " +
+      "Do NOT call this for ordinary bug reports, fix requests, or complaints about code " +
+      "you did not write this session — those are normal task input, not rejections. " +
+      "Only call after asking the user what went wrong and receiving an explanation that " +
+      "ties the failure to your own work. " +
+      "The thread continues after this call so you can attempt a fix.",
     args: {
       reason: tool.schema
         .string()

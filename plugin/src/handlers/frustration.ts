@@ -90,8 +90,10 @@ const EXASPERATION = [
 ]
 
 const DIRECT_NEGATIVE_FEEDBACK = [
-  "that('?s|\\s+is)\\s+(bad|wrong|broken|not\\s+right|incorrect|terrible|awful|horrible|trash|garbage|useless|worse)",
-  "this\\s+is\\s+(bad|wrong|broken|not\\s+right|incorrect|terrible|awful|horrible|trash|garbage|useless|worse|a\\s+mess)",
+  // Demonstrative-anchored complaints. Includes "it" so "it's inconsistent",
+  // "it's broken", "it is wrong" all match.
+  "(it|that)('?s|\\s+is)\\s+(bad|wrong|broken|not\\s+right|incorrect|terrible|awful|horrible|trash|garbage|useless|worse|inconsistent|incomplete|misleading|unclear|confusing|sloppy|half\\s*-?baked|half\\s*-?assed)",
+  "this\\s+is\\s+(bad|wrong|broken|not\\s+right|incorrect|terrible|awful|horrible|trash|garbage|useless|worse|inconsistent|incomplete|misleading|unclear|confusing|sloppy|half\\s*-?baked|half\\s*-?assed|a\\s+mess)",
   "that('?s|\\s+is)\\s+not\\s+what",
   "wasn'?t\\s+(great|good|right|correct|helpful|what\\s+i|even\\s+close)",
   "not\\s+(great|good|helpful|impressed|happy|satisfied|useful|correct|right|even\\s+close|what\\s+i)",
@@ -109,6 +111,67 @@ const DIRECT_NEGATIVE_FEEDBACK = [
   "totally\\s+off",
   "missed\\s+the\\s+(point|mark)",
   "that('?s|\\s+is)\\s+the\\s+opposite",
+]
+
+// Critique in code-review / bug-report register. Frustrated users dropping
+// a numbered list of issues rarely curse — but the cumulative tone is the
+// same. We match the load-bearing phrases, not adjectives like "wrong" on
+// their own (too false-positive prone in normal technical discussion).
+const CODE_REVIEW_CRITIQUE = [
+  // "X is broken" / "X are broken" — almost always a complaint, even without
+  // a this/that anchor. We accept the rare "broken into pieces" false
+  // positive because the cost is one bounded rejection per session.
+  "(is|are)\\s+broken",
+  // Inconsistency complaints — "it's inconsistent", "the inconsistency",
+  // "these are inconsistent", "inconsistencies between".
+  "inconsisten(t|cy|cies|tly)",
+  // Pointing-out-problems summaries. The past-participle "found" + a
+  // problem noun is the canonical opening line of a bug report.
+  "issues?\\s+found",
+  "problems?\\s+found",
+  "bugs?\\s+found",
+  "found\\s+(an?\\s+|several\\s+|multiple\\s+|many\\s+|some\\s+|a\\s+few\\s+|\\d+\\s+)?(issues?|problems?|bugs?)",
+  // Missing artefacts — tests, coverage, docs.
+  "no\\s+tests?\\b",
+  "no\\s+test\\s+coverage",
+  "missing\\s+(tests?|test\\s+coverage|coverage|docs?|documentation)",
+  "lack\\s+of\\s+(tests?|test\\s+coverage|coverage|docs?|documentation)",
+  // CI / build / lint failures — describing a guaranteed pipeline break.
+  "fails?\\s+(CI|tests?|the\\s+build|lint(ing)?|gofmt|prettier|eslint|typecheck|the\\s+CI)",
+  "will\\s+fail\\s+(CI|tests?|the\\s+build|lint(ing)?|gofmt|prettier|eslint|typecheck|the\\s+CI)",
+  // "would be more X" — implies the current state is less than X.
+  "would\\s+be\\s+more\\s+(accurate|correct|consistent|appropriate|sensible|honest|truthful|relevant|coherent|reasonable|idiomatic)",
+  // Direct accusations of laziness / no justification.
+  "no\\s+reason\\s+(not\\s+to|to\\s+not)",
+  "no\\s+excuse",
+  "should\\s+have\\s+(been|caught|noticed|known)",
+]
+
+// Bug-report register: "X is not detecting", "the modal isn't showing",
+// "the toast doesn't render". Distinct from "doesn't work" because users
+// describe the specific failed behavior. We expand the verb list beyond
+// the original "work / look right / seem right / make sense".
+const SYSTEM_FAILURE_REPORT = [
+  "(is|are)\\s+not\\s+(detecting|showing|displaying|firing|triggering|registering|matching|persisting|saving|loading|rendering|updating|appearing|surfacing|propagating|reflecting|reaching|hitting|reading|writing|running)",
+  "(isn'?t|aren'?t)\\s+(detecting|showing|displaying|firing|triggering|registering|matching|persisting|saving|loading|rendering|updating|appearing|surfacing|propagating|reflecting|reaching|hitting|reading|writing|running)",
+  "doesn'?t\\s+(detect|show|display|fire|trigger|register|match|persist|save|load|render|update|appear|surface|propagate|reflect|reach|hit|read|write|run)",
+  "didn'?t\\s+(detect|show|display|fire|trigger|register|match|persist|save|load|render|update|appear|surface|propagate|reflect|reach|hit|read|write|run)",
+  "not\\s+being\\s+(detected|shown|displayed|fired|triggered|registered|matched|persisted|saved|loaded|rendered|updated|propagated|reflected|read|written|reached)",
+]
+
+// Demanding more effort from the agent. We require an emphasis qualifier
+// ("much / even / way / a lot / far") on "focus/pay attention more" so we
+// don't trip on the common neutral "focus more on the algorithm part".
+//
+// We deliberately omit ambiguous patterns like "actually fix" or "do it
+// properly" because they show up benignly inside sentences ("let me
+// actually fix this", "I'll do it properly when I get back").
+const DEMANDING_EFFORT = [
+  "focus\\s+(much|even|way|a\\s+lot|far)\\s+more\\s+on",
+  "pay\\s+(much|far|a\\s+lot)\\s+more\\s+attention\\s+to",
+  "try\\s+harder",
+  "do\\s+your\\s+job",
+  "do\\s+(it|this|that)\\s+right\\s+this\\s+time",
 ]
 
 const BLAME_AND_ACCUSATION = [
@@ -249,6 +312,9 @@ const ALL_PATTERNS = [
   ...INSULTS_AND_STRONG_NEGATIVES,
   ...EXASPERATION,
   ...DIRECT_NEGATIVE_FEEDBACK,
+  ...CODE_REVIEW_CRITIQUE,
+  ...SYSTEM_FAILURE_REPORT,
+  ...DEMANDING_EFFORT,
   ...BLAME_AND_ACCUSATION,
   ...NOT_WHAT_I_ASKED,
   ...REDO_AND_REVERT,

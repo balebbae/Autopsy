@@ -194,9 +194,12 @@ def test_preflight_finds_seeded_run(client: TestClient, seeded_run_id: str) -> N
     assert "incomplete_schema_change" in body["missing_followups"]
     addendum = body.get("system_addendum")
     assert isinstance(addendum, str) and addendum
-    assert "incomplete_schema_change" in addendum
-    # FastAPI validation against ``PreflightResponse`` — spot-check shape.
+    # The addendum is now a fix-pattern-only bulleted list; the top
+    # recommended check must be cited verbatim so the agent can act on
+    # it.
     assert isinstance(body["recommended_checks"], list)
+    assert body["recommended_checks"], "expected at least one recommended check"
+    assert body["recommended_checks"][0] in addendum
     assert isinstance(body["block"], bool)
 
 

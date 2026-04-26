@@ -3,11 +3,29 @@ import { preflight } from "../client.ts"
 import { latestUserMessage, setLatestUserMessage } from "../last-task.ts"
 import { showSystemInjectionToast, type OpencodeToastClient } from "../tui-toast.ts"
 
-const DISSATISFACTION_PROMPT = `[Autopsy] You have a tool called autopsy_register_rejection. If the user expresses frustration or dissatisfaction with your changes (e.g. "this is wrong", "undo this", profanity, asking you to start over, or saying your output is bad), do the following:
-1. Acknowledge their frustration briefly.
-2. Ask what specifically went wrong or what they expected instead.
-3. Once they explain, call autopsy_register_rejection with their reason, a failure_mode if you can identify one (incomplete_schema_change, missing_test_coverage, frontend_backend_drift, regression, wrong_target, security_concern, performance_concern, or other), and a comma-separated symptoms list if applicable.
-Do NOT call the tool preemptively — only after the user has confirmed or explained the issue.`
+const DISSATISFACTION_PROMPT = `[Autopsy] You have a tool called autopsy_register_rejection. ONLY call it when the user is unambiguously dissatisfied with work YOU performed in the CURRENT session.
+
+CALL the tool when ALL of these are true:
+- You have already made one or more changes (edit/write/bash/etc.) in this session.
+- The user's most recent message is directly criticizing one of those changes (e.g. "no, that's wrong, undo it", "your fix broke X", "you misunderstood, revert", "stop changing Y", "that's not what I asked for").
+- After you ask what went wrong, the user confirms the issue is with YOUR work (not with pre-existing code or a new request).
+
+DO NOT call the tool when:
+- The user is reporting a bug or issue in code you have NOT modified this session (e.g. "there are issues with cmd/foo/bar.go:183", "this function has a bug", "Findings flagged X — please fix"). This is a normal task request, not a rejection.
+- The user is asking for a new change, fix, refactor, or addition — even if they sound exasperated or use words like "broken", "issues", "wrong", "fix", or "please". Treat these as work to do.
+- The user is sharing logs, errors, stack traces, lint output, or test failures without explicitly blaming your output.
+- You have not made any tool calls or edits yet in this session — by definition you can't have caused frustration.
+- The user's complaint is about a third party (CI, a teammate, another tool, the language, the framework).
+
+Workflow:
+1. Default to treating user input as a task description. Do the work first.
+2. Only if the user is clearly rejecting your most recent change, briefly acknowledge it and ask exactly what went wrong.
+3. Once the user confirms YOUR change was the problem, call autopsy_register_rejection with:
+   - reason: the user's wording or a concise summary tied to your change.
+   - failure_mode (optional): one of incomplete_schema_change, missing_test_coverage, frontend_backend_drift, regression, wrong_target, security_concern, performance_concern.
+   - symptoms (optional): comma-separated specifics.
+
+When in doubt, do NOT call the tool. False positives — recording normal bug reports as user frustration — are MUCH worse than missing a real rejection.`
 
 // `experimental.chat.system.transform` runs once at the start of each chat
 // turn, before the LLM is called. We use it to inject a preflight warning

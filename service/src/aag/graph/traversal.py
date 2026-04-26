@@ -229,15 +229,17 @@ def _template_addendum(
     """Deterministic prose template — falls out of the retrieved subgraph
     without any LLM. Used as the default addendum and as the fallback when
     LLM synthesis is disabled / times out / fails.
+
+    The addendum mentions only the top fix patterns (recommended_checks)
+    so the agent gets actionable guidance instead of a recap of past
+    symptoms. ``failure_modes`` is still required as a gate — without a
+    similar failed run there's nothing to warn about — and
+    ``missing_followups`` is intentionally unused in the rendered text.
     """
-    if not failure_modes:
+    if not failure_modes or not recommended_checks:
         return None
-    parts = [f"⚠️ Similar past task failed with: **{failure_modes[0][0]}**."]
-    if missing_followups:
-        parts.append(f"Watch out for: {', '.join(missing_followups)}.")
-    if recommended_checks:
-        parts.append(f"Recommended checks: {', '.join(recommended_checks)}.")
-    return " ".join(parts)
+    bullets = "\n".join(f"- {check}" for check in recommended_checks[:3])
+    return f"⚠️ Apply these fix patterns from similar past failures:\n{bullets}"
 
 
 def _should_block(top_failure_score: float, threshold: float | None) -> bool:

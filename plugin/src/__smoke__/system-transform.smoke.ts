@@ -161,14 +161,14 @@ async function testSessionMessagesFallbackInjectsAddendum() {
   assert(injectedEvents().length === 1, "fallback path should emit injection event")
 }
 
-async function testToastIsOptIn() {
+async function testToastFiresByDefault() {
   reset()
   setLatestUserMessage("change the API", "ses-toast")
-  let toastCalls = 0
+  const toasts: any[] = []
   const client = {
     tui: {
-      showToast: async () => {
-        toastCalls += 1
+      showToast: async (opts: any) => {
+        toasts.push(opts)
       },
     },
   }
@@ -181,7 +181,20 @@ async function testToastIsOptIn() {
   )
   await flushBatcher()
 
-  assert(toastCalls === 0, "TUI toast should be opt-in via AAG_PREFLIGHT_TUI_TOAST")
+  assert(toasts.length === 1, `system-injection toast should fire by default; got ${toasts.length}`)
+  assert(
+    toasts[0]?.body?.title === "Autopsy fix patterns",
+    `toast title should announce fix patterns; got ${JSON.stringify(toasts[0])}`,
+  )
+  assert(
+    typeof toasts[0]?.body?.message === "string" && toasts[0].body.message.includes("OpenAPI"),
+    `toast body should include the suggested-fix addendum verbatim; got ${JSON.stringify(toasts[0])}`,
+  )
+  assert(
+    typeof toasts[0]?.body?.message === "string" &&
+      toasts[0].body.message.includes("/runs/ses-toast"),
+    `toast body should include a dashboard run link; got ${JSON.stringify(toasts[0])}`,
+  )
 }
 
 async function testNoTaskOnlyAddsBaselinePrompt() {
@@ -203,7 +216,7 @@ async function main() {
   try {
     await testBufferedTaskInjectsAddendum()
     await testSessionMessagesFallbackInjectsAddendum()
-    await testToastIsOptIn()
+    await testToastFiresByDefault()
     await testNoTaskOnlyAddsBaselinePrompt()
     console.log("ok")
   } finally {

@@ -24,7 +24,7 @@ import { enqueue } from "../batcher.ts"
 import { preflight } from "../client.ts"
 import { config } from "../config.ts"
 import { latestUserMessage } from "../last-task.ts"
-import { showToolRiskToast, type OpencodeToastClient } from "../tui-toast.ts"
+import type { OpencodeToastClient } from "../tui-toast.ts"
 import type { EventIn } from "../types.ts"
 
 // --- args fingerprint -----------------------------------------------------
@@ -110,17 +110,10 @@ export const onToolBefore = async (
   const dedupKey = `${input.sessionID}:${input.tool}:${argsHash}:${risk.risk_level}`
   if (!markFired(dedupKey)) return
 
-  await showToolRiskToast(ctx.client, ctx.directory, {
-    sessionID: input.sessionID,
-    tool: input.tool,
-    argsHash,
-    riskLevel: risk.risk_level,
-    addendum: risk.system_addendum,
-    missingFollowups: risk.missing_followups ?? [],
-    recommendedChecks: risk.recommended_checks ?? [],
-    similarRuns: risk.similar_runs ?? [],
-    reason: risk.reason,
-  })
+  // No tool-scoped toast: per-tool risk toasts were noisy and duplicative
+  // with the system-injection toast (which already surfaces the fix
+  // patterns once per turn). The per-tool warning still lands as
+  // telemetry below.
 
   const ev: EventIn = {
     run_id: input.sessionID,

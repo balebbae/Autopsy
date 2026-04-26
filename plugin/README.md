@@ -72,9 +72,9 @@ turn doesn't flood the timeline.
 | ----------------------------- | ------- | --------------------------------------------------------------------------------------- |
 | `AAG_PREFLIGHT_DISABLED`      | `0`     | Set to `1`/`true` to skip preflight entirely — plugin never blocks or warns.            |
 | `AAG_PREFLIGHT_TIMEOUT_MS`    | `800`   | Hard ceiling on the `/v1/preflight` HTTP call. On timeout, fail-open.                   |
-| `AAG_PREFLIGHT_TUI_TOAST`     | `0`     | Set to `1`/`true` to show opencode toasts when Autopsy preflight fires. |
-| `AAG_PREFLIGHT_TUI_TOAST_DURATION_MS` | `30000` | How long the optional opencode toast stays visible. opencode's plugin API exposes duration, not a close button. |
-| `AAG_PREFLIGHT_TUI_TOAST_SCOPE` | `tool` | Which optional toasts to show: `tool` for one toast per risky tool call, `system` for hidden-context injection, or `both`. |
+| `AAG_PREFLIGHT_TUI_TOAST`     | `1`     | opencode toast when Autopsy injects fix patterns into the system prompt. Set to `0`/`false` to silence. Per-tool risk toasts have been removed; the warned event still flows through telemetry. |
+| `AAG_PREFLIGHT_TUI_TOAST_DURATION_MS` | `30000` | How long the opencode toast stays visible. opencode's plugin API exposes duration, not a close button. |
+| `AAG_DASHBOARD_URL`           | `http://localhost:3000` | Dashboard origin used to build clickable run links inside the system-injection toast. |
 | `AAG_PREFLIGHT_TOOLS`         | `edit,write,bash,read,grep` | Comma-separated tool names to preflight. Override to narrow / widen.        |
 
 ### Smoke test
