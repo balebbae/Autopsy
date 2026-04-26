@@ -820,7 +820,7 @@ export function GraphExplorer() {
               <EmptyState
                 Icon={Network}
                 title="No graph evidence for this run yet"
-                description="The failure graph is only generated after a run is finalized (rejected, approved, or aborted). Active runs don't appear here until they end and the autopsy classifier runs."
+                description="The failure graph is only generated after a run is finalized (rejected, approved, or completed). Active runs don't appear here until they end and the autopsy classifier runs."
                 action={
                   <div className="flex items-center gap-2">
                     <Button onClick={() => setRunFilter("")} variant="default">

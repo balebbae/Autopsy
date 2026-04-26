@@ -35,9 +35,9 @@ export function StatusPill({
       Icon: XCircle,
     },
     aborted: {
-      label: "Aborted",
-      cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
-      Icon: CircleSlash,
+      label: "Completed",
+      cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
+      Icon: CheckCircle2,
     },
   }
   const meta = map[status] ?? {

@@ -178,10 +178,10 @@ export function OutcomeCard({ run }: { run: Run }) {
     )
   }
   return (
-    <Card className={cn("border-amber-500/30 bg-amber-500/5 p-4 text-sm space-y-3")}>
+    <Card className={cn("border-emerald-500/30 bg-emerald-500/5 p-4 text-sm space-y-3")}>
       <div className="flex items-center justify-between gap-2">
-        <div className="inline-flex items-center gap-2 text-amber-700 dark:text-amber-300">
-          <CircleSlash className="h-4 w-4" /> Aborted
+        <div className="inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+          <CheckCircle2 className="h-4 w-4" /> Completed
         </div>
         {count > 0 ? <RejectionBadge count={count} tone="aborted" /> : null}
       </div>
@@ -284,7 +284,7 @@ function RejectionBadge({ count, tone }: { count: number; tone: Tone }) {
     active: "border-red-500/40 text-red-700 dark:text-red-300 bg-red-500/10",
     rejected: "border-red-500/40 text-red-700 dark:text-red-300 bg-red-500/10",
     approved: "border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10",
-    aborted: "border-red-500/40 text-red-700 dark:text-red-300 bg-red-500/10",
+    aborted: "border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10",
   }
   return (
     <span

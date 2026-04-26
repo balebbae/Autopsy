@@ -88,7 +88,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
     const rejected = runs.filter((r) => r.status === "rejected").length
     const approved = runs.filter((r) => r.status === "approved").length
     const active = runs.filter((r) => r.status === "active").length
-    const aborted = runs.filter((r) => r.status === "aborted").length
+    const completed = runs.filter((r) => r.status === "aborted").length
     const totalCalls = runs.reduce((acc, r) => acc + r.tool_calls, 0)
     const totalFiles = runs.reduce((acc, r) => acc + r.files_touched, 0)
     const totalRejections = runs.reduce((acc, r) => acc + (r.rejection_count ?? 0), 0)
@@ -101,7 +101,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
       rejected,
       approved,
       active,
-      aborted,
+      completed,
       avgCalls,
       avgFiles,
       rejectionRate,
@@ -116,7 +116,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
       { name: "Approved", value: stats.approved, color: "var(--success)" },
       { name: "Rejected", value: stats.rejected, color: "var(--destructive)" },
       { name: "Active", value: stats.active, color: "var(--primary)" },
-      { name: "Aborted", value: stats.aborted, color: "var(--warning)" },
+      { name: "Completed", value: stats.completed, color: "var(--success)" },
     ],
     [stats],
   )
@@ -171,7 +171,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
         </SectionCard>
         <SectionCard
           title="Outcome distribution"
-          description="Approved vs rejected vs active vs aborted"
+          description="Approved vs rejected vs active vs completed"
           bodyClassName="p-3"
         >
           <OutcomeDonut data={donutData} total={stats.total} />
@@ -278,7 +278,7 @@ function FilterBar({
           <SelectItem value="active">Active</SelectItem>
           <SelectItem value="approved">Approved</SelectItem>
           <SelectItem value="rejected">Rejected</SelectItem>
-          <SelectItem value="aborted">Aborted</SelectItem>
+          <SelectItem value="aborted">Completed</SelectItem>
         </SelectContent>
       </Select>
       <Select value={project} onValueChange={setProject}>
