@@ -88,6 +88,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
     const rejected = runs.filter((r) => r.status === "rejected").length
     const approved = runs.filter((r) => r.status === "approved").length
     const active = runs.filter((r) => r.status === "active").length
+    const inactive = runs.filter((r) => r.status === "inactive").length
     const aborted = runs.filter((r) => r.status === "aborted").length
     const totalCalls = runs.reduce((acc, r) => acc + r.tool_calls, 0)
     const totalFiles = runs.reduce((acc, r) => acc + r.files_touched, 0)
@@ -101,6 +102,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
       rejected,
       approved,
       active,
+      inactive,
       aborted,
       avgCalls,
       avgFiles,
@@ -116,6 +118,7 @@ export function RunsOverview({ initial }: { initial: RunSummary[] }) {
       { name: "Approved", value: stats.approved, color: "var(--success)" },
       { name: "Rejected", value: stats.rejected, color: "var(--destructive)" },
       { name: "Active", value: stats.active, color: "var(--primary)" },
+      { name: "Inactive", value: stats.inactive, color: "var(--muted-foreground)" },
       { name: "Aborted", value: stats.aborted, color: "var(--warning)" },
     ],
     [stats],
@@ -276,6 +279,7 @@ function FilterBar({
         <SelectContent>
           <SelectItem value="__all">All statuses</SelectItem>
           <SelectItem value="active">Active</SelectItem>
+          <SelectItem value="inactive">Inactive</SelectItem>
           <SelectItem value="approved">Approved</SelectItem>
           <SelectItem value="rejected">Rejected</SelectItem>
           <SelectItem value="aborted">Aborted</SelectItem>

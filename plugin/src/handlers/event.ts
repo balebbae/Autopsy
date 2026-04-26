@@ -1,5 +1,5 @@
 import { enqueue, flush } from "../batcher.ts"
-import { postFeedback, postRejection } from "../client.ts"
+import { postFeedback, postOutcome, postRejection } from "../client.ts"
 import { setLatestUserMessage } from "../last-task.ts"
 import type { EventIn } from "../types.ts"
 import { FRUSTRATION_RE, markSessionFired } from "./frustration.ts"
@@ -133,6 +133,27 @@ export const onEvent = async (
   if (!runId) return
 
   // --- Side-effects that must run BEFORE the noise filter ---
+
+  // Detect session end: opencode emits session.status with a terminal
+  // status (e.g. "ended", "completed", "closed") when the session is
+  // over. Post an outcome so the service can finalize the run. The
+  // service-side stale detector handles the case where the plugin exits
+  // without emitting this event (e.g. process killed).
+  if (e.type === "session.status") {
+    const sessionStatus = String(
+      (e.properties as { status?: unknown }).status ?? "",
+    ).toLowerCase()
+    if (
+      sessionStatus === "ended" ||
+      sessionStatus === "completed" ||
+      sessionStatus === "closed" ||
+      sessionStatus === "disconnected"
+    ) {
+      await flush()
+      void postOutcome(runId, "aborted")
+      return
+    }
+  }
 
   // On session.idle (turn complete), refresh the run's display name from
   // opencode's session info. opencode auto-generates a meaningful title

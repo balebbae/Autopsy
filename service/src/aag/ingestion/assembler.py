@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import func
 
 from aag.models import Artifact, Run, RunEvent
 from aag.schemas.events import EventIn
@@ -97,6 +98,9 @@ async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
                 forced = bool(ev.properties.get("force"))
                 if forced or _is_placeholder_task(existing.task):
                     existing.task = _derive_task_name(new_task)
+        # Always refresh updated_at so the stale-run detector has a
+        # reliable "last activity" timestamp.
+        existing.updated_at = func.now()  # type: ignore[assignment]
         return existing
 
     info = ev.properties.get("info") or {}

@@ -44,6 +44,23 @@ export function OutcomeCard({ run }: { run: Run }) {
       </Card>
     )
   }
+  if (run.status === "inactive") {
+    return (
+      <Card className="border-slate-500/30 bg-slate-500/5 p-4 text-sm space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300">
+            <CircleSlash className="h-4 w-4" /> Inactive
+          </div>
+          {count > 0 ? <RejectionBadge count={count} tone="aborted" /> : null}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          No activity detected — session ended without an explicit outcome.
+        </p>
+        {rejections.length > 0 ? <RejectionList rejections={rejections} /> : null}
+        {failure ? <FailureSummary failure={failure} /> : null}
+      </Card>
+    )
+  }
   if (run.status === "rejected") {
     return (
       <Card className="border-red-500/30 bg-red-500/5 p-4 text-sm space-y-3">

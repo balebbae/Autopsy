@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from aag.schemas.events import EventIn
 
-RunStatus = Literal["active", "approved", "rejected", "aborted"]
+RunStatus = Literal["active", "inactive", "approved", "rejected", "aborted"]
 DiffStatus = Literal["added", "modified", "deleted", "renamed"]
 
 
