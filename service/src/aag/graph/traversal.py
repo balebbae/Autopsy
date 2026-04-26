@@ -427,16 +427,27 @@ async def _persist_hit(
     """Insert a PreflightHit row. Best-effort: any DB error is logged and
     swallowed so a logging failure never breaks the preflight response.
 
-    Skips silently when the referenced run_id doesn't exist yet — the FK
-    would otherwise raise IntegrityError on an early plugin call (e.g.
-    ``system.transform`` firing before the first event lands).
+    When the referenced run_id doesn't exist yet (common on the first turn —
+    ``system.transform`` fires before the batcher has flushed
+    ``session.created``), we insert a minimal stub run so the FK is
+    satisfied.  The assembler's upsert will fill in the real metadata when
+    the ``session.created`` event arrives moments later.
     """
     if req.run_id is None:
         return
     try:
         run = await session.get(Run, req.run_id)
         if run is None:
-            return
+            run = Run(
+                run_id=req.run_id,
+                project=req.project,
+                worktree=req.worktree,
+                task=req.task,
+                started_at=int(time.time() * 1000),
+                status="active",
+            )
+            session.add(run)
+            await session.flush()
         hit = PreflightHit(
             run_id=req.run_id,
             ts=int(time.time() * 1000),
