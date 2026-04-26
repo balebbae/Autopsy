@@ -30,12 +30,27 @@ AUTOPSY_TASK_SET = "autopsy.task.set"
 _TASK_NAME_MAX_LEN = 120
 
 
+_AUTO_TITLE_PREFIXES = (
+    "new session",
+    "user opened",
+    "user ran",
+    "user edited",
+    "user created",
+    "user deleted",
+    "user modified",
+    "untitled",
+)
+
+
 def _is_placeholder_task(task: str | None) -> bool:
-    """opencode's default session title is 'New session - <ISO timestamp>'."""
+    """Detect auto-generated or low-quality session titles from opencode."""
     if not task:
         return True
     t = task.strip()
-    return not t or t.lower().startswith("new session")
+    if not t:
+        return True
+    low = t.lower()
+    return any(low.startswith(p) for p in _AUTO_TITLE_PREFIXES)
 
 
 def _derive_task_name(text: str) -> str:
@@ -67,6 +82,8 @@ async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
         # If an autopsy.task.set arrives before session.created, still record
         # the task so the dashboard never displays a missing/placeholder name.
         initial_task: str | None = info.get("title")
+        if _is_placeholder_task(initial_task):
+            initial_task = "Untitled chat"
         if ev.type == AUTOPSY_TASK_SET:
             candidate = ev.properties.get("task")
             if isinstance(candidate, str) and candidate.strip():
@@ -91,7 +108,10 @@ async def upsert_run(session: AsyncSession, ev: EventIn) -> Run:
 
     if ev.type == SESSION_CREATED:
         info = ev.properties.get("info") or {}
-        existing.task = existing.task or info.get("title")
+        raw_title = info.get("title")
+        if _is_placeholder_task(raw_title):
+            raw_title = "Untitled chat"
+        existing.task = existing.task or raw_title
         existing.worktree = existing.worktree or info.get("directory") or ev.worktree
     elif ev.type == SESSION_UPDATED:
         info = ev.properties.get("info") or {}

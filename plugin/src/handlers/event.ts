@@ -112,8 +112,21 @@ type OpencodeClientLike = {
   }
 }
 
-const isPlaceholderTitle = (title: string): boolean =>
-  !title.trim() || title.trim().toLowerCase().startsWith("new session")
+const AUTO_TITLE_PREFIXES = [
+  "new session",
+  "user opened",
+  "user ran",
+  "user edited",
+  "user created",
+  "user deleted",
+  "user modified",
+  "untitled",
+]
+
+const isPlaceholderTitle = (title: string): boolean => {
+  const t = title.trim().toLowerCase()
+  return !t || AUTO_TITLE_PREFIXES.some((p) => t.startsWith(p))
+}
 
 // Track sessions where we already pushed a forced title so we don't spam.
 const forcedTitleSent = new Set<string>()
@@ -345,7 +358,10 @@ export const onEvent = async (
       type: "chat.message",
       properties: { sessionID: runId, role: "user", text },
     })
-    if (text) setLatestUserMessage(text)
+    if (text) {
+      setLatestUserMessage(text)
+      void refreshSessionTitle(runId, ctx.client, ctx)
+    }
     return
   } else if (e.type === "session.updated") {
     // Only forward when it carries a session info with a title — that's
@@ -374,6 +390,9 @@ export const onEvent = async (
       })
       if (norm.role === "user" && typeof norm.text === "string") {
         setLatestUserMessage(norm.text, runId)
+        // Eagerly refresh the session title on the first user message so
+        // the dashboard doesn't sit on "Untitled chat" until session.idle.
+        void refreshSessionTitle(runId, ctx.client, ctx)
       }
     }
     return
