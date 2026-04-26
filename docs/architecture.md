@@ -153,3 +153,9 @@ functional. The demo loop in `docs/demo-script.md` runs cleanly against
 - Ranked retrieval. The current ANN + 2-hop CTE returns top-K by raw
   cosine; weighting by recency, project-scope, and counter-evidence would
   noticeably improve preflight precision on noisy graphs.
+- Embedding provider on a fresh box. `make demo-prep` auto-selects the best
+  provider that's actually viable (`openai` if a key is set, else `local`
+  if `sentence-transformers` is installed, else `stub`); the `stub`
+  fallback only matches byte-identical prompts, so any real demo should
+  run with `local` or `openai`. Worth eventually pinning a default that
+  doesn't require a manual upgrade for the wow-moment to fire.
