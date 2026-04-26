@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# only keep the latest run per PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  service:
+    name: service · ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: service/uv.lock
+
+      - name: sync deps
+        working-directory: service
+        run: uv sync --frozen
+
+      - name: ruff check
+        working-directory: service
+        run: uv run ruff check .
+
+      - name: ruff format check
+        working-directory: service
+        run: uv run ruff format --check .
+
+  dashboard:
+    name: dashboard · tsc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: install
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+
+      - name: typecheck
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+  plugin:
+    name: plugin · tsc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: install
+        working-directory: plugin
+        run: bun install --frozen-lockfile
+
+      - name: typecheck
+        working-directory: plugin
+        run: bun run typecheck
+
+  install-script:
+    name: install.sh · shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning install.sh

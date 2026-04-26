@@ -102,3 +102,54 @@ TUI-side UX (inline autopsy badges, dedicated preflight pane).
 - **No LLM in the preflight critical path.** Vector retrieval + traversal
   must work without any API call. LLM-generated text is only for the autopsy
   *report*, not for `/v1/preflight`.
+
+## Status
+
+The four pillars (plugin, service, analyzer/graph, dashboard) are end-to-end
+functional. The demo loop in `docs/demo-script.md` runs cleanly against
+`make dev`.
+
+### Plugin (`plugin/`)
+- opencode 1.x event/tool/permission/system handlers, batched event
+  ingestion, preflight client.
+- `tool.execute.before` context injection (`handlers/tool-before.ts`):
+  blocks high-confidence past-failure matches with a graph-cited rationale,
+  emits `aag.preflight.warned` / `aag.preflight.blocked` for the dashboard.
+  Bounded by `AAG_PREFLIGHT_TIMEOUT_MS` with fail-open.
+- Postflight code-check runner (`postflight.ts`): debounced
+  lint/typecheck/test suite that files `automated_check_failed` rejections
+  back into the graph.
+- Frustration detection on user chat messages, dedup'd per session.
+
+### Service (`service/`)
+- `/v1/events`, `/v1/runs`, run diff/outcome/feedback routes, SSE
+  re-broadcast on `/v1/runs/:id/stream`.
+- Analyzer: four deterministic rules (`schema_change`, `missing_migration`,
+  `missing_test`, `frontend_drift`), classifier, entity extractor, finalizer
+  pipeline wired to the outcome route.
+- Graph: `upsert_node` / `upsert_edge` primitives plus a top-level writer
+  that consumes classifier output, vector embeddings (`embeddings.write_for`)
+  for semantic similarity, ANN + 2-hop CTE traversal in `/v1/preflight`,
+  and `GET /v1/graph/{nodes,edges}` for the dashboard.
+- ~5k lines of pytest covering routes, finalizer, traversal, classifier,
+  extractor, embeddings, and a full demo-loop integration test.
+
+### Dashboard (`dashboard/`)
+- Run list + detail pages with live SSE timeline (`run-refresher.tsx`,
+  `timeline.tsx`).
+- 3D force-graph explorer at `/graph` with filtering by FailureMode /
+  Component / ChangePattern.
+- Per-run preflight panel showing every `/v1/preflight` hit and which were
+  blocking.
+
+## Open work / nice-to-haves
+
+- The classifier is regex/heuristic only. An optional LLM pass for "*why*
+  the change is incomplete" (vs. pattern-matching paths) is wired up behind
+  `preflight_llm_enabled` for the preflight synth path but not for
+  classification itself.
+- `AAG_PREFLIGHT_TOOLS` defaults include `bash`, which means the injection
+  handler can hard-block bash calls. Worth a deliberate yes/no per project.
+- Ranked retrieval. The current ANN + 2-hop CTE returns top-K by raw
+  cosine; weighting by recency, project-scope, and counter-evidence would
+  noticeably improve preflight precision on noisy graphs.
