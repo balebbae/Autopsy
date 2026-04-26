@@ -52,6 +52,33 @@ CREATE TABLE IF NOT EXISTS rejections (
 
 CREATE INDEX IF NOT EXISTS rejections_run_ts_idx ON rejections(run_id, ts);
 
+-- =========================================================================
+-- Preflight hits (one row per /v1/preflight call that returned non-none risk)
+-- Persisted so the dashboard can render "Autopsy caught something" badges
+-- on run rows and we can measure preflight effectiveness over time.
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS preflight_hits (
+    id                  BIGSERIAL PRIMARY KEY,
+    run_id              TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    ts                  BIGINT NOT NULL,                  -- ms since epoch (event-time)
+    task                TEXT NOT NULL,                    -- the task string we evaluated
+    risk_level          TEXT NOT NULL
+                        CHECK (risk_level IN ('low','medium','high')),
+    top_failure_score   REAL NOT NULL,
+    blocked             BOOLEAN NOT NULL DEFAULT false,
+    tool                TEXT,                              -- null when from system.transform
+    args                JSONB,                             -- tool args when blocked / inspected
+    similar_runs        TEXT[] NOT NULL DEFAULT '{}',
+    top_failure_modes   JSONB NOT NULL DEFAULT '[]'::jsonb, -- [{name, score}, ...]
+    top_fix_patterns    JSONB NOT NULL DEFAULT '[]'::jsonb, -- [{name, score}, ...]
+    addendum            TEXT,                              -- prose injected into system prompt
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS preflight_hits_run_ts_idx ON preflight_hits(run_id, ts);
+CREATE INDEX IF NOT EXISTS preflight_hits_risk_idx   ON preflight_hits(risk_level);
+
 CREATE TABLE IF NOT EXISTS run_events (
     id          BIGSERIAL PRIMARY KEY,
     event_id    TEXT,

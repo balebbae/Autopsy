@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     # (system.transform + tool.execute.before).
     preflight_cache_ttl_s: int = 300
 
+    # TTL for *negative* preflight results (``risk_level=none``). Held
+    # much shorter than positive results so a brand-new run that gets
+    # rejected immediately can be retrieved by the next turn — without
+    # this knob, the first preflight call against an empty graph would
+    # poison the cache for 5 minutes and hide all subsequent evidence.
+    # Still long enough to absorb the same-turn duplicates that motivated
+    # caching in the first place.
+    preflight_negative_cache_ttl_s: int = 30
+
     @property
     def embed_dim(self) -> int:
         return PROVIDER_DIM[self.embed_provider]

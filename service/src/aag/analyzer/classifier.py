@@ -175,15 +175,34 @@ def _extract_conversation(
     for ev in events:
         props = ev.properties or {}
 
-        if ev.type == "message.part.updated":
+        if ev.type == "chat.message":
+            # New normalized shape (live plugin path): the plugin's event
+            # handler converts opencode's `message.part.updated` /
+            # `message.created` into a single `chat.message` event with an
+            # explicit role. This is the format the dashboard timeline +
+            # everything downstream uses for live runs.
+            role = (props.get("role") or "").strip()
+            text = (props.get("text") or "").strip()
+            if not text:
+                continue
+            if role == "user":
+                user_messages.append(text)
+            elif role == "assistant":
+                assistant_messages.append(text)
+
+        elif ev.type == "message.part.updated":
+            # Legacy shape (older plugins, fixtures, replay scripts that
+            # haven't been re-recorded). Kept so the test fixtures + the
+            # `make replay` flow still classify correctly.
             part = props.get("part") or {}
             text = part.get("text", "")
             if not text or not text.strip():
                 continue
             part_type = part.get("type", "")
             if part_type == "text":
-                # opencode doesn't include a role field. User text parts lack
-                # a "time" key; assistant text parts always have one.
+                # opencode doesn't include a role field on parts. User text
+                # parts lack a "time" key; assistant text parts always have
+                # one. The plugin uses the same heuristic when normalizing.
                 if "time" not in part:
                     user_messages.append(text.strip())
                 else:

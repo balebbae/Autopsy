@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from aag.deps import SessionDep
 from aag.ingestion import assembler
-from aag.models import Artifact, FailureCase, Rejection, Run
+from aag.models import Artifact, FailureCase, PreflightHit, Rejection, Run
 from aag.schemas import (
     DiffSnapshot,
     FailureCaseOut,
     OutcomeIn,
+    PreflightHitOut,
     RejectionIn,
     RejectionOut,
     RunOut,
@@ -45,7 +46,12 @@ def _normalize_diff_files(content: dict) -> list[dict]:
     return []
 
 
-def _summary_from(run: Run) -> RunSummary:
+def _summary_from(
+    run: Run,
+    *,
+    preflight_hit_count: int = 0,
+    preflight_blocked_count: int = 0,
+) -> RunSummary:
     return RunSummary(
         run_id=run.run_id,
         project=run.project,
@@ -58,6 +64,8 @@ def _summary_from(run: Run) -> RunSummary:
         rejection_count=run.rejection_count or 0,
         files_touched=run.files_touched,
         tool_calls=run.tool_calls,
+        preflight_hit_count=preflight_hit_count,
+        preflight_blocked_count=preflight_blocked_count,
     )
 
 
@@ -73,6 +81,24 @@ def _rejection_to_out(r: Rejection) -> RejectionOut:
     )
 
 
+def _preflight_hit_to_out(h: PreflightHit) -> PreflightHitOut:
+    return PreflightHitOut(
+        id=h.id,
+        run_id=h.run_id,
+        ts=h.ts,
+        task=h.task,
+        risk_level=h.risk_level,  # type: ignore[arg-type]
+        top_failure_score=h.top_failure_score,
+        blocked=h.blocked,
+        tool=h.tool,
+        args=h.args,
+        similar_runs=list(h.similar_runs or []),
+        top_failure_modes=list(h.top_failure_modes or []),
+        top_fix_patterns=list(h.top_fix_patterns or []),
+        addendum=h.addendum,
+    )
+
+
 @router.get("/runs", response_model=list[RunSummary])
 async def list_runs(
     session: SessionDep,
@@ -85,8 +111,36 @@ async def list_runs(
         stmt = stmt.where(Run.project == project)
     if status_filter is not None:
         stmt = stmt.where(Run.status == status_filter)
-    runs = (await session.execute(stmt)).scalars()
-    return [_summary_from(r) for r in runs]
+    runs = list((await session.execute(stmt)).scalars())
+    if not runs:
+        return []
+
+    # Single GROUP BY to avoid an N+1 over preflight_hits when rendering the
+    # runs overview (which wants the green "Autopsy fired" badge per row).
+    run_ids = [r.run_id for r in runs]
+    pf_rows = (
+        await session.execute(
+            select(
+                PreflightHit.run_id,
+                func.count(PreflightHit.id).label("hits"),
+                func.sum(case((PreflightHit.blocked.is_(True), 1), else_=0)).label("blocked"),
+            )
+            .where(PreflightHit.run_id.in_(run_ids))
+            .group_by(PreflightHit.run_id)
+        )
+    ).all()
+    counts: dict[str, tuple[int, int]] = {
+        row.run_id: (int(row.hits or 0), int(row.blocked or 0)) for row in pf_rows
+    }
+
+    return [
+        _summary_from(
+            r,
+            preflight_hit_count=counts.get(r.run_id, (0, 0))[0],
+            preflight_blocked_count=counts.get(r.run_id, (0, 0))[1],
+        )
+        for r in runs
+    ]
 
 
 @router.get("/runs/{run_id}", response_model=RunOut)
@@ -126,12 +180,28 @@ async def get_run(run_id: str, session: SessionDep) -> RunOut:
     ).scalars()
     rejections = [_rejection_to_out(r) for r in rejections_raw]
 
+    hits_raw = list(
+        (
+            await session.execute(
+                select(PreflightHit).where(PreflightHit.run_id == run_id).order_by(PreflightHit.ts)
+            )
+        ).scalars()
+    )
+    preflight_hits = [_preflight_hit_to_out(h) for h in hits_raw]
+    blocked_count = sum(1 for h in hits_raw if h.blocked)
+
+    summary = _summary_from(
+        run,
+        preflight_hit_count=len(preflight_hits),
+        preflight_blocked_count=blocked_count,
+    )
     return RunOut(
-        **_summary_from(run).model_dump(),
+        **summary.model_dump(),
         events=[EventIn(**assembler.event_to_dict(e)) for e in events],
         diffs=diffs,
         failure_case=failure,
         rejections=rejections,
+        preflight_hits=preflight_hits,
     )
 
 

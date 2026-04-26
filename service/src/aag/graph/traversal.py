@@ -30,13 +30,20 @@ original F4 spec suggested, so ``recommended_checks`` is non-empty.
 
 from __future__ import annotations
 
+import contextlib
+import logging
+import time
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aag.config import get_settings
 from aag.graph import preflight_cache, preflight_synth
 from aag.graph.embeddings import embed
+from aag.models import PreflightHit, Run
 from aag.schemas.preflight import PreflightRequest, PreflightResponse
+
+log = logging.getLogger(__name__)
 
 # Cosine distance threshold (0 = identical, 2 = opposite). Tuned for the stub
 # embedder (sha256-derived random vectors → unrelated texts cluster around 1.0).
@@ -225,7 +232,23 @@ async def preflight(session: AsyncSession, req: PreflightRequest) -> PreflightRe
 
     cached = preflight_cache.get(req.project, req.task)
     if cached is not None:
-        return cached
+        # Persist a hit row for the new run too, even though we're skipping
+        # the graph work. Each call site (different run_id, possibly different
+        # tool / args) deserves its own row in `preflight_hits` so the
+        # dashboard sees one badge per agent-side check.
+        if req.run_id and cached.response.risk_level != "none":
+            await _persist_hit(
+                session,
+                req=req,
+                risk_level=cached.response.risk_level,
+                top_failure_score=cached.top_failure_score,
+                blocked=cached.response.block,
+                similar_runs=list(cached.response.similar_runs),
+                failure_modes=cached.failure_modes,
+                fix_patterns=cached.fix_patterns,
+                addendum=cached.response.system_addendum,
+            )
+        return cached.response
 
     half_life = max(settings.preflight_half_life_days, 0.5)
     counter_weight = max(settings.preflight_counter_weight, 0.0)
@@ -260,8 +283,18 @@ async def preflight(session: AsyncSession, req: PreflightRequest) -> PreflightRe
         # No similar failed runs. We still return ``none`` even when many
         # similar approved runs exist — counter-evidence without prior
         # failure isn't a warning, it's just past success.
+        # NB: cached under a *short* TTL so a brand-new failure ingested
+        # seconds after this call can still be retrieved by the next
+        # preflight from the same turn / similar wording. The longer TTL
+        # only applies to positive results, which don't go stale the same
+        # way (more failures = stronger signal, not invalidation).
         resp = PreflightResponse(risk_level="none")
-        preflight_cache.put(req.project, req.task, resp, settings.preflight_cache_ttl_s)
+        preflight_cache.put(
+            req.project,
+            req.task,
+            preflight_cache.CachedPreflight(response=resp),
+            settings.preflight_negative_cache_ttl_s,
+        )
         return resp
 
     failed_run_ids = [rid for rid, _ in failed]
@@ -345,5 +378,86 @@ async def preflight(session: AsyncSession, req: PreflightRequest) -> PreflightRe
         recommended_checks=recommended_checks,
         system_addendum=addendum,
     )
-    preflight_cache.put(req.project, req.task, resp, settings.preflight_cache_ttl_s)
+    preflight_cache.put(
+        req.project,
+        req.task,
+        preflight_cache.CachedPreflight(
+            response=resp,
+            top_failure_score=top_failure_score,
+            failure_modes=list(failure_modes),
+            fix_patterns=list(fix_patterns),
+        ),
+        settings.preflight_cache_ttl_s,
+    )
+
+    # Persist the hit so the dashboard can render an "Autopsy fired" badge on
+    # the run row and we can measure preflight effectiveness over time. Only
+    # write when we have a `run_id` (i.e. the call originated from a real
+    # plugin event, not a standalone debug query) AND the run row already
+    # exists (FK constraint). Rows from the cache hit branch are NOT
+    # re-persisted — the original call already wrote one.
+    if req.run_id and risk_level != "none":
+        await _persist_hit(
+            session,
+            req=req,
+            risk_level=risk_level,
+            top_failure_score=top_failure_score,
+            blocked=block,
+            similar_runs=similar_runs,
+            failure_modes=failure_modes,
+            fix_patterns=fix_patterns,
+            addendum=addendum,
+        )
+
     return resp
+
+
+async def _persist_hit(
+    session: AsyncSession,
+    *,
+    req: PreflightRequest,
+    risk_level: str,
+    top_failure_score: float,
+    blocked: bool,
+    similar_runs: list[str],
+    failure_modes: list[tuple[str, float]],
+    fix_patterns: list[tuple[str, float]],
+    addendum: str | None,
+) -> None:
+    """Insert a PreflightHit row. Best-effort: any DB error is logged and
+    swallowed so a logging failure never breaks the preflight response.
+
+    Skips silently when the referenced run_id doesn't exist yet — the FK
+    would otherwise raise IntegrityError on an early plugin call (e.g.
+    ``system.transform`` firing before the first event lands).
+    """
+    if req.run_id is None:
+        return
+    try:
+        run = await session.get(Run, req.run_id)
+        if run is None:
+            return
+        hit = PreflightHit(
+            run_id=req.run_id,
+            ts=int(time.time() * 1000),
+            task=req.task,
+            risk_level=risk_level,
+            top_failure_score=float(top_failure_score),
+            blocked=blocked,
+            tool=req.tool,
+            args=req.args,
+            similar_runs=list(similar_runs),
+            top_failure_modes=[
+                {"name": name, "score": float(score)} for name, score in failure_modes[:5]
+            ],
+            top_fix_patterns=[
+                {"name": name, "score": float(score)} for name, score in fix_patterns[:5]
+            ],
+            addendum=addendum,
+        )
+        session.add(hit)
+        await session.commit()
+    except Exception:
+        log.exception("preflight: failed to persist hit for run_id=%s", req.run_id)
+        with contextlib.suppress(Exception):
+            await session.rollback()

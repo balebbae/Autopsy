@@ -17,6 +17,24 @@ export type RunSummary = {
   rejection_count: number
   files_touched: number
   tool_calls: number
+  preflight_hit_count: number
+  preflight_blocked_count: number
+}
+
+export type PreflightHit = {
+  id: number
+  run_id: string
+  ts: number
+  task: string
+  risk_level: "low" | "medium" | "high"
+  top_failure_score: number
+  blocked: boolean
+  tool: string | null
+  args: Record<string, unknown> | null
+  similar_runs: string[]
+  top_failure_modes: { name: string; score: number }[]
+  top_fix_patterns: { name: string; score: number }[]
+  addendum: string | null
 }
 
 export type Rejection = {
@@ -71,6 +89,7 @@ export type Run = RunSummary & {
   diffs: DiffSnapshot[]
   failure_case: FailureCase | null
   rejections: Rejection[]
+  preflight_hits: PreflightHit[]
 }
 
 export type GraphNodeType =

@@ -5,6 +5,7 @@ import { RunHeader } from "@/components/runs/run-header"
 import { MetricsCard } from "@/components/runs/metrics-card"
 import { OutcomeCard } from "@/components/runs/outcome-card"
 import { AutopsyCard } from "@/components/runs/autopsy-card"
+import { PreflightCard } from "@/components/runs/preflight-card"
 import { RunTimeline } from "@/components/runs/timeline"
 import { DiffsPanel } from "@/components/runs/diffs-panel"
 import { RunRefresher } from "@/components/runs/run-refresher"
@@ -34,8 +35,9 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
           <DiffsPanel snapshots={run.diffs} />
         </div>
 
-        <aside className="lg:col-span-3 order-3">
+        <aside className="lg:col-span-3 order-3 space-y-4">
           <AutopsyCard failure={run.failure_case} run={run} />
+          <PreflightCard hits={run.preflight_hits ?? []} />
         </aside>
       </div>
     </div>
