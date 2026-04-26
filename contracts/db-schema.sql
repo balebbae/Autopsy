@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS runs (
 -- Idempotent migration: add rejection_count to existing dev databases.
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS rejection_count INTEGER NOT NULL DEFAULT 0;
 
+-- Idempotent migration: widen the status CHECK to include 'inactive'.
+-- DROP + re-ADD because CHECK constraints don't support IF NOT EXISTS.
+ALTER TABLE runs DROP CONSTRAINT IF EXISTS runs_status_check;
+ALTER TABLE runs ADD CONSTRAINT runs_status_check
+    CHECK (status IN ('active','inactive','approved','rejected','aborted'));
+
 CREATE INDEX IF NOT EXISTS runs_project_idx     ON runs(project);
 CREATE INDEX IF NOT EXISTS runs_status_idx      ON runs(status);
 CREATE INDEX IF NOT EXISTS runs_started_at_idx  ON runs(started_at DESC);
