@@ -283,6 +283,73 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/GraphEdge" }
 
+  /v1/graph/export:
+    get:
+      tags: [graph]
+      summary: Download a portable knowledge bundle
+      description: |
+        Returns a JSON bundle of every finalized FailureCase plus its
+        embeddings, suitable for hand-off to another Autopsy instance.
+        Run/Task/Outcome graph nodes are deliberately not included — the
+        importer re-derives them from the cases. Response carries a
+        `Content-Disposition: attachment` header so a direct browser hit or
+        `curl -OJ` saves the file with a meaningful name.
+      parameters:
+        - in: query
+          name: project
+          schema: { type: string }
+          description: Filter to a single source project. Omit to export everything.
+        - in: query
+          name: source_label
+          schema: { type: string }
+          description: |
+            Label embedded in the bundle so importers can namespace shadow
+            runs (e.g. `acme-team`). Defaults to the source project name.
+      responses:
+        "200":
+          description: knowledge bundle
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportBundle" }
+
+  /v1/graph/import:
+    post:
+      tags: [graph]
+      summary: Materialize a knowledge bundle into the local graph
+      description: |
+        Idempotent — re-importing the same bundle is a no-op (skip-on-conflict).
+        For each case the importer creates:
+
+          - a minimal shadow row in `runs` keyed
+            `imported:<source_label>:<source_run_id>`, with `project =
+            imported:<source_label>` so the dashboard can filter it out;
+          - a matching `failure_cases` row;
+          - the FailureMode / FixPattern / Symptom / ChangePattern /
+            Component graph nodes plus the Run / Task / Outcome shells the
+            preflight retrieval needs (Run nodes are tagged
+            `properties.imported = true`);
+          - the supplied embeddings, keyed to the shadow run id.
+
+        Returns 400 when the bundle's `embed_dim` doesn't match the local
+        `EMBED_PROVIDER`, since silent dim mismatch corrupts ANN search.
+      parameters:
+        - in: query
+          name: source_label
+          schema: { type: string }
+          description: Override the source label embedded in the bundle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportBundle" }
+      responses:
+        "200":
+          description: imported
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResult" }
+        "400": { description: bundle malformed or incompatible }
+
 components:
   schemas:
     EventIn:
@@ -508,3 +575,79 @@ components:
         properties:
           type: object
           additionalProperties: true
+
+    ExportEmbedding:
+      type: object
+      required: [entity_type, text, vector]
+      properties:
+        entity_type:
+          type: string
+          enum: [task, failure, fix, run_summary]
+        text: { type: string }
+        vector:
+          type: array
+          items: { type: number, format: float }
+          description: "pgvector contents; length matches source's embed_dim"
+
+    ExportSymptom:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        evidence: { type: array, items: { type: string } }
+        confidence: { type: number, format: float, default: 0.5 }
+        source: { type: string, nullable: true }
+
+    ExportCase:
+      type: object
+      required: [source_run_id, failure_mode]
+      properties:
+        source_run_id:
+          type: string
+          description: "Original run_id at the source. Importer prefixes it with `imported:<source_label>:` to avoid collisions."
+        started_at: { type: integer, default: 0 }
+        ended_at: { type: integer, nullable: true }
+        status:
+          type: string
+          enum: [rejected, approved, aborted]
+          default: rejected
+        task: { type: string, nullable: true }
+        task_type: { type: string, nullable: true }
+        failure_mode: { type: string }
+        fix_pattern: { type: string, nullable: true }
+        components: { type: array, items: { type: string } }
+        change_patterns: { type: array, items: { type: string } }
+        symptoms:
+          type: array
+          items: { $ref: "#/components/schemas/ExportSymptom" }
+        summary: { type: string, nullable: true }
+        embeddings:
+          type: array
+          items: { $ref: "#/components/schemas/ExportEmbedding" }
+
+    ExportSource:
+      type: object
+      properties:
+        project: { type: string, nullable: true }
+        source_label: { type: string, nullable: true }
+        embed_provider: { type: string, nullable: true }
+        embed_dim: { type: integer, nullable: true }
+
+    ExportBundle:
+      type: object
+      required: [schema_version, exported_at]
+      properties:
+        schema_version: { type: integer, description: "Currently 1" }
+        exported_at: { type: integer, description: "Unix ms" }
+        source: { $ref: "#/components/schemas/ExportSource" }
+        cases:
+          type: array
+          items: { $ref: "#/components/schemas/ExportCase" }
+
+    ImportResult:
+      type: object
+      properties:
+        cases_added: { type: integer, default: 0 }
+        cases_skipped: { type: integer, default: 0 }
+        embeddings_added: { type: integer, default: 0 }
+        embeddings_skipped: { type: integer, default: 0 }
